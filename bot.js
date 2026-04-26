@@ -3877,15 +3877,30 @@ async function dispatchSlashInner(interaction) {
           const userBasic = (await (await fetch('https://users.roblox.com/v1/usernames/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usernames: [username], excludeBannedUsers: false }) })).json()).data?.[0];
           if (!userBasic) return interaction.editReply({ embeds: [errorEmbed('not found').setDescription(`could not find a roblox user named **${username}**`)] });
           await acceptRobloxJoinRequest(userBasic.id, getGroupId());
-          // optionally also give the verify role if one is configured
+          // also try to give the verify role. check both possible config stores
           let roleNote = '';
           const vcfg = loadVerifyConfig();
-          if (vcfg.roleId) {
-            const role = guild.roles.cache.get(vcfg.roleId);
+          const mainCfg = loadConfig();
+          const verifyRoleId = vcfg.roleId || mainCfg.verifyRoleId || null;
+          if (verifyRoleId) {
+            const role = guild.roles.cache.get(verifyRoleId);
             const member = await guild.members.fetch(t.userId).catch(() => null);
-            if (role && member) {
-              try { await member.roles.add(role, `ticket accept by ${interaction.user.tag}`); roleNote = `\n\nalso gave ${member} the ${role} role.`; }
-              catch (e) { roleNote = `\n\n(could not add verify role ${e.message})`; }
+            const me = guild.members.me;
+            if (!role) {
+              roleNote = `\n(verify role no longer exists in this server)`;
+            } else if (!member) {
+              roleNote = `\n(couldn't fetch the member to give them ${role})`;
+            } else if (role.managed) {
+              roleNote = `\n(can't give ${role} - it's managed by an integration)`;
+            } else if (me && role.position >= me.roles.highest.position) {
+              roleNote = `\n(can't give ${role} - move my role above it)`;
+            } else {
+              try {
+                await member.roles.add(role, `ticket accept by ${interaction.user.tag}`);
+                roleNote = `\nand gave them the ${role} role`;
+              } catch (err) {
+                roleNote = `\n(couldn't add ${role}: ${err.message})`;
+              }
             }
           }
           return interaction.editReply({ content: `${interaction.user} accepted <@${t.userId}> into the group${roleNote}`, allowedMentions: { users: [interaction.user.id, t.userId] } });
@@ -3921,16 +3936,35 @@ async function dispatchSlashInner(interaction) {
           saveVerify(vData);
           saveLinkedVerified(vData);
 
-          // also try to apply the verify role if one is configured
+          // also try to apply the verify role. check both possible config stores
+          // (verify config.json -> roleId set by /setverifyrole, and bot config.json -> verifyRoleId
+          // set by /verify role set) so whichever the user configured wins.
           let roleNote = '';
           const vcfg = loadVerifyConfig();
-          if (vcfg.roleId) {
-            const role = guild.roles.cache.get(vcfg.roleId);
+          const mainCfg = loadConfig();
+          const verifyRoleId = vcfg.roleId || mainCfg.verifyRoleId || null;
+          if (verifyRoleId) {
+            const role = guild.roles.cache.get(verifyRoleId);
             const member = await guild.members.fetch(discordId).catch(() => null);
-            if (role && member) {
-              try { await member.roles.add(role, `ticket verify by ${interaction.user.tag}`); roleNote = `\nalso gave them the ${role} role.`; }
-              catch {}
+            const me = guild.members.me;
+            if (!role) {
+              roleNote = `\n(verify role \`${verifyRoleId}\` no longer exists in this server)`;
+            } else if (!member) {
+              roleNote = `\n(couldn't fetch the member to give them ${role})`;
+            } else if (role.managed) {
+              roleNote = `\n(can't give ${role} - it's managed by an integration)`;
+            } else if (me && role.position >= me.roles.highest.position) {
+              roleNote = `\n(can't give ${role} - move my role above it in server settings)`;
+            } else {
+              try {
+                await member.roles.add(role, `ticket verify by ${interaction.user.tag}`);
+                roleNote = `\nalso gave them the ${role} role.`;
+              } catch (err) {
+                roleNote = `\n(couldn't add ${role}: ${err.message})`;
+              }
             }
+          } else {
+            roleNote = `\n(no verify role set - run \`/setverifyrole\` to pick one)`;
           }
 
           return interaction.editReply({ content: `<@${discordId}> is now linked to **${userBasic.name}**${roleNote}`, allowedMentions: { users: [discordId] } });
