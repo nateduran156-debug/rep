@@ -458,21 +458,6 @@ const loadRolePerms = () => { const d = loadJSON(ROLE_PERMS_FILE); return Array.
 const saveRolePerms = roles => saveJSON(ROLE_PERMS_FILE, { roles })
 const loadTickets = () => loadJSON(TICKETS_FILE)
 const saveTickets = t => saveJSON(TICKETS_FILE, t)
-
-// look up a user's open ticket but ignore stale entries pointing at deleted
-// channels. if the channel is gone we clean it out of the tickets store so
-// the user can open a fresh ticket without being blocked by a ghost record.
-function findOpenTicket(tickets, guild, predicate) {
-  for (const [chanId, t] of Object.entries(tickets)) {
-    if (!predicate(t)) continue;
-    const ch = guild?.channels?.cache?.get(chanId);
-    if (ch) return [chanId, t];
-    // stale - drop it
-    delete tickets[chanId];
-  }
-  saveTickets(tickets);
-  return null;
-}
 const loadTicketSupport = () => { const d = loadJSON(TICKET_SUPPORT_FILE); return Array.isArray(d.roles) ? d.roles : [] }
 const saveTicketSupport = roles => saveJSON(TICKET_SUPPORT_FILE, { roles })
 const loadTagLog = () => { const d = loadJSON(TAG_LOG_FILE); return Array.isArray(d.entries) ? d.entries : [] }
@@ -3099,7 +3084,7 @@ async function dispatchSlashInner(interaction) {
     if (!guild) return interaction.reply({ content: 'server only', ephemeral: true });
     const robloxUsername = interaction.fields.getTextInputValue('ticket roblox username').trim();
     const tickets = loadTickets();
-    const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id);
+    const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id);
     if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open ticket: <#${existing[0]}> `)], ephemeral: true });
     await interaction.deferReply({ ephemeral: true });
 
@@ -3209,7 +3194,7 @@ async function dispatchSlashInner(interaction) {
   if (interaction.isModalSubmit() && interaction.customId === 'tag open modal') {
     const robloxUsername = interaction.fields.getTextInputValue('tag roblox username').trim();
     const tickets = loadTickets();
-    const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === "tag");
+    const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && t.kind === 'tag');
     if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open tag ticket: <#${existing[0]}> `)], ephemeral: true });
 
     const guild = interaction.guild;
@@ -3280,14 +3265,15 @@ async function dispatchSlashInner(interaction) {
     });
     sendBotLog(guild, baseEmbed().setColor(0x2C2F33).setTitle('tag ticket opened').setDescription(`${interaction.user.tag} opened ${ch} (roblox: \`${robloxUsername}\`)`));
       sendTagLog(guild, { embeds: [baseEmbed().setColor(0x2C2F33).setTitle('tag ticket opened').setDescription(`${interaction.user.tag} opened ${ch} (roblox: \`${robloxUsername}\`)`)] });
-    return interaction.editReply({ embeds: [successEmbed('tag ticket created').setDescription(`your tag ticket: ${ch}`)] });
-  }
-
-  // tag ticket modal submit: create a real ticket channel
-  if (interaction.isModalSubmit() && interaction.customId === 'tagticket open modal') {
+    return interaction.editReplyconst tagSupportPing = support.length ? support.map(id => `<@&${id}>`).join(' ') : '';
+    await ch.send({
+      content: `${interaction.user} ${tagSupportPing}`.trim(),
+      embeds: [panelEmbed],
+      components: [panelRow],
+      allowedMentions: { users: [interaction.user.id], roles: supportteraction.isModalSubmit() && interaction.customId === 'tagticket open modal') {
     const robloxUsername = interaction.fields.getTextInputValue('tagticket roblox username').trim();
     const tickets = loadTickets();
-    const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === "tagticket");
+    const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && t.kind === 'tagticket');
     if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open tag ticket: <#${existing[0]}> `)], ephemeral: true });
 
     const guild = interaction.guild;
@@ -3410,7 +3396,7 @@ async function dispatchSlashInner(interaction) {
       const kind = interaction.values[0];
       if (kind === 'verification') {
         const tickets = loadTickets();
-        const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && (t.kind === "ticket" || !t.kind));
+        const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && (t.kind === 'ticket' || !t.kind));
         if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open ticket: <#${existing[0]}> `)], ephemeral: true });
         const modal = new ModalBuilder().setCustomId('ticket open modal').setTitle('Open a Ticket')
           .addComponents(new ActionRowBuilder().addComponents(
@@ -3424,7 +3410,7 @@ async function dispatchSlashInner(interaction) {
       }
       if (kind === 'tag') {
         const tickets = loadTickets();
-        const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === "tag");
+        const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && t.kind === 'tag');
         if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open tag ticket: <#${existing[0]}> `)], ephemeral: true });
         const modal = new ModalBuilder().setCustomId('tag open modal').setTitle('Open a Tag Ticket')
           .addComponents(new ActionRowBuilder().addComponents(
@@ -3738,7 +3724,7 @@ async function dispatchSlashInner(interaction) {
     // /setuptag panel: open a self tag ticket (shows roblox username modal)
     if (interaction.customId === 'tag open') {
       const tickets = loadTickets();
-      const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === "tag");
+      const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && t.kind === 'tag');
       if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open tag ticket: <#${existing[0]}> `)], ephemeral: true });
       const modal = new ModalBuilder().setCustomId('tag open modal').setTitle('Open a Tag Ticket')
         .addComponents(new ActionRowBuilder().addComponents(
@@ -3814,7 +3800,7 @@ async function dispatchSlashInner(interaction) {
     // tag ticket panel: open a tag ticket (shows roblox username modal)
     if (interaction.customId === 'tagticket open') {
       const tickets = loadTickets();
-      const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === "tagticket");
+      const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && t.kind === 'tagticket');
       if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open tag ticket: <#${existing[0]}> `)], ephemeral: true });
       const modal = new ModalBuilder().setCustomId('tagticket open modal').setTitle('Open a Tag Ticket')
         .addComponents(new ActionRowBuilder().addComponents(
@@ -3833,7 +3819,7 @@ async function dispatchSlashInner(interaction) {
     if (interaction.customId === 'ticket open') {
       if (!interaction.guild) return interaction.reply({ content: 'server only', ephemeral: true });
       const tickets = loadTickets();
-      const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id);
+      const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id);
       if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open ticket: <#${existing[0]}> `)], ephemeral: true });
       const modal = new ModalBuilder().setCustomId('ticket open modal').setTitle('Open a Ticket')
         .addComponents(new ActionRowBuilder().addComponents(
@@ -3904,10 +3890,11 @@ async function dispatchSlashInner(interaction) {
             if (!role) {
               roleNote = `\n(verify role no longer exists in this server)`;
             } else if (!member) {
-              roleNote = `\n(couldn't fetch the member to give them ${role})`;
-            } else if (role.managed) {
-              roleNote = `\n(can't give ${role} - it's managed by an integration)`;
-            } else if (me && role.position >= me.roles.highest.position) {
+              roleNote = `\n(couldn't fetch the meevery config shape (per guild, flat, main config)
+          let roleNote = '';
+          const vcfg = loadVerifyConfig();
+          const mainCfg = loadConfig();
+          const verifyRoleId = vcfg?.[guild.id]?.roleId || vcfg?me && role.position >= me.roles.highest.position) {
               roleNote = `\n(can't give ${role} - move my role above it)`;
             } else {
               try {
@@ -3962,13 +3949,13 @@ async function dispatchSlashInner(interaction) {
             const role = guild.roles.cache.get(verifyRoleId);
             const member = await guild.members.fetch(discordId).catch(() => null);
             const me = guild.members.me;
-            if (!role) {
-              roleNote = `\n(verify role \`${verifyRoleId}\` no longer exists in this server)`;
-            } else if (!member) {
-              roleNote = `\n(couldn't fetch the member to give them ${role})`;
-            } else if (role.managed) {
-              roleNote = `\n(can't give ${role} - it's managed by an integration)`;
-            } else if (me && role.position >= me.roles.highest.position) {
+     every shape the config could
+          // be in: per guild (vcfg[guildId].roleId), flat (vcfg.roleId), and the
+          // separate bot config (mainCfg.verifyRoleId from /verify role set).
+          let roleNote = '';
+          const vcfg = loadVerifyConfig();
+          const mainCfg = loadConfig();
+          const verifyRoleId = vcfg?.[guild.id]?.roleId || vcfg?          } else if (me && role.position >= me.roles.highest.position) {
               roleNote = `\n(can't give ${role} - move my role above it in server settings)`;
             } else {
               try {
@@ -5814,7 +5801,7 @@ async function dispatchSlashInner(interaction) {
   // /tagticket anyone can open one; shows roblox username modal
   if (commandName === 'tagticket') {
     const tickets = loadTickets();
-    const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === "tagticket");
+    const existing = Object.entries(tickets).find(([, t]) => t.userId === interaction.user.id && t.kind === 'tagticket');
     if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open tag ticket: <#${existing[0]}> `)], ephemeral: true });
 
     const modal = new ModalBuilder().setCustomId('tagticket open modal').setTitle('Open a Tag Ticket')
