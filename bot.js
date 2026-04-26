@@ -12,22 +12,22 @@ import pg from 'pg'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// (Removed) global embed image — embeds now only show the small thumbnail
-// in the top right via baseEmbed().setThumbnail(...).
+// (removed) global embed image - embeds now only show the small thumbnail
+// in the top right via baseembed().setthumbnail(...).
 
-// IDs that can never be added to whitelist or wl manager lists
+// ids that can never be added to whitelist or wl manager lists
 const BLOCKED_WL_IDS = new Set(['794724800097681428', '1472482602215538779'])
 function isBlockedFromWhitelist(id) { return BLOCKED_WL_IDS.has(String(id)) }
 
-// Short error code helper
-// `errCode()` builds a short numeric/letter code like `E01 A4F` so the user
-// can quote it back. Use it inside catch blocks to surface real errors.
+// short error code helper
+// `errcode()` builds a short numeric/letter code like `E01 A4F` so the user
+// can quote it back. use it inside catch blocks to surface real errors.
 function shortErrCode(prefix = 'E') {
   return `${prefix} ${Math.random().toString(36).slice(2, 6).toUpperCase()}`
 }
 
-// Postgres connection pool
-// Uses DATABASE URL env var. If not set, all DB operations are no ops and the
+// postgres connection pool
+// uses DATABASE URL env var. if not set, all DB operations are no ops and the
 // bot falls back to JSON files transparently.
 const { Pool } = pg
 let dbPool = null
@@ -42,7 +42,7 @@ if (process.env.DATABASE_URL) {
   dbPool.on('error', (err) => console.error('[pg] pool error:', err.message))
 }
 
-// Safe query helper returns null on error so callers can fall back to JSON
+// safe query helper returns null on error so callers can fall back to JSON
 async function dbQuery(sql, params = []) {
   if (!dbPool) return null
   try {
@@ -53,8 +53,8 @@ async function dbQuery(sql, params = []) {
   }
 }
 
-// Database schema initialisation
-// Creates all tables on startup if they don't already exist. Each table stores
+// database schema initialisation
+// creates all tables on startup if they don't already exist. each table stores
 // its data as a JSONB `data` column keyed by a text `key` so the schema is
 // flexible and mirrors the existing JSON file structure exactly.
 async function initDbSchema() {
@@ -70,14 +70,14 @@ async function initDbSchema() {
   }
   // bot status table: written by the controller bot, read by this bot
   await dbQuery(`CREATE TABLE IF NOT EXISTS "bot status" ( id TEXT PRIMARY KEY DEFAULT 'main', status TEXT NOT NULL DEFAULT 'running', "updated at" TIMESTAMPTZ DEFAULT NOW() )`)
-  // Ensure a default row exists so SELECT always returns something
+  // ensure a default row exists so SELECT always returns something
   await dbQuery(`INSERT INTO "bot status" (id, status) VALUES ('main', 'running') ON CONFLICT (id) DO NOTHING`)
   console.log('[pg] schema ready')
 }
 
-// Generic DB load/save (keyed JSONB store)
-// Each "file" maps to a row in its table with key='_root'. This keeps the
-// interface identical to loadJSON/saveJSON so callers need no changes.
+// generic DB load/save (keyed JSONB store)
+// each "file" maps to a row in its table with key='_root'. this keeps the
+// interface identical to loadjson/savejson so callers need no changes.
 async function dbLoad(table) {
   const res = await dbQuery(`SELECT data FROM "${table}" WHERE key = '_root'`)
   if (!res || !res.rows.length) return null
@@ -91,13 +91,13 @@ async function dbSave(table, data) {
   )
 }
 
-// Data migration: JSON → Postgres
-// On first run (when the DB row doesn't exist yet) we read the JSON file and
-// insert its contents into Postgres. Subsequent runs skip this because the row
+// data migration: JSON → postgres
+// on first run (when the DB row doesn't exist yet) we read the JSON file and
+// insert its contents into postgres. subsequent runs skip this because the row
 // already exists. JSON files are kept as is for backup purposes.
 async function migrateJsonToDb(table, filePath) {
   if (!dbPool) return
-  // Only migrate if the DB row is empty
+  // only migrate if the DB row is empty
   const existing = await dbQuery(`SELECT 1 FROM "${table}" WHERE key = '_root'`)
   if (existing && existing.rows.length > 0) return
   if (!fs.existsSync(filePath)) return
@@ -112,9 +112,9 @@ async function migrateJsonToDb(table, filePath) {
   }
 }
 
-// Control signal: check bot status table
-// The controller bot writes status='stopped' or 'restarting' to this table.
-// We check on startup and every 30 s. If stopped, we shut down gracefully.
+// control signal: check bot status table
+// the controller bot writes status='stopped' or 'restarting' to this table.
+// we check on startup and every 30 s. if stopped, we shut down gracefully.
 async function checkBotStatus() {
   if (!dbPool) return
   try {
@@ -132,10 +132,10 @@ async function checkBotStatus() {
   }
 }
 
-// Whitelisted user IDs (env based, hard enforcement)
-// WHITELISTED USER IDS is a comma separated list of Discord user IDs that are
+// whitelisted user ids (env based, hard enforcement)
+// WHITELISTED USER IDS is a comma separated list of discord user ids that are
 // always treated as whitelisted regardless of the whitelist.json / DB contents.
-// This is separate from the in bot whitelist management system.
+// this is separate from the in bot whitelist management system.
 const ENV_WHITELISTED_IDS = new Set(
   (process.env.WHITELISTED_USER_IDS || '')
     .split(',').map(s => s.trim()).filter(Boolean)
@@ -161,9 +161,9 @@ const client = new Client({
 // ─── members.fetch() throttle ─────────────────────────────────────────────
 // gateway opcode 8 (request guild members) gets rate limited HARD if u spam it,
 // so we cache the result per guild for a lil while. fixes the
-// "Request with opcode 8 was rate limited" spam in console.
-const _membersFetchCache = new Map() // guildId -> last fetch ms
-const _membersFetchInflight = new Map() // guildId -> Promise
+// "request with opcode 8 was rate limited" spam in console.
+const _membersFetchCache = new Map() // guildid -> last fetch ms
+const _membersFetchInflight = new Map() // guildid -> promise
 const MEMBERS_FETCH_TTL = 60_000 // a fresh fetch is good for 1 min
 
 async function fetchMembersCached(guild) {
@@ -171,7 +171,7 @@ async function fetchMembersCached(guild) {
   const id = guild.id
   const last = _membersFetchCache.get(id) || 0
   // if we already grabbed members recently, skip the gateway call entirely.
-  // the cache on the guild already has em from the GuildMembers intent.
+  // the cache on the guild already has em from the guildmembers intent.
   if (Date.now() - last < MEMBERS_FETCH_TTL && guild.members.cache.size > 0) {
     return guild.members.cache
   }
@@ -219,7 +219,7 @@ function setGroupConfig({ groupId, groupLink }) {
   saveJSON(p, cfg);
 }
 
-// Roblox cookie management (restricted to a single owner discord id)
+// roblox cookie management (restricted to a single owner discord id)
 const COOKIE_OWNER_ID = '1456824205545967713';
 const COOKIE_FILE = path.join(__dirname, 'cookie.json');
 function loadStoredCookie() {
@@ -233,9 +233,9 @@ function saveStoredCookie(cookie) {
   if (c) process.env.ROBLOX_COOKIE = c;
 })();
 
-// Modern "Sins" embed system
-// Every embed gets: author line (Sins + logo), logo thumbnail top right,
-// bold title via setTitle, timestamp, and footer the full discohook look.
+// modern "sins" embed system
+// every embed gets: author line (sins + logo), logo thumbnail top right,
+// bold title via settitle, timestamp, and footer the full discohook look.
 const getBotName = () => { const cfg = loadJSON(path.join(__dirname, 'config.json')); return cfg.customName || client.user?.username || 'Bot' }
 
 function baseEmbed() {
@@ -348,8 +348,8 @@ const JOINDM_FILE = path.join(__dirname, 'joindm.json')
 const LOGS_FILE = path.join(__dirname, 'logs.json')
 
 // read/write json helpers
-// Loads JSON safely. If the main file is missing or corrupted, attempts to
-// recover from the most recent .bak file before giving up. A corrupted main
+// loads JSON safely. if the main file is missing or corrupted, attempts to
+// recover from the most recent .bak file before giving up. a corrupted main
 // file is preserved as <file .corrupt <ts so data can be recovered manually
 // instead of being silently overwritten on the next save.
 function loadJSON(file) {
@@ -382,11 +382,11 @@ function loadJSON(file) {
   return {}
 }
 
-// Atomic write: serialize first (so a JSON.stringify error doesn't truncate the
+// atomic write: serialize first (so a JSON.stringify error doesn't truncate the
 // existing file), keep a .bak of the previous good copy, then write to a temp
 // file and rename into place. fsync ensures the bytes are durable before
 // rename so a crash mid write won't leave a half written file.
-// Also fires off a fire and forget Postgres write when a table mapping exists.
+// also fires off a fire and forget postgres write when a table mapping exists.
 function saveJSON(file, data) {
   const json = JSON.stringify(data, null, 2)
   const dir = path.dirname(file)
@@ -403,7 +403,7 @@ function saveJSON(file, data) {
     fs.closeSync(fd)
   }
   fs.renameSync(tmp, file)
-  // Mirror write to Postgres (fire and forget never blocks the caller)
+  // mirror write to postgres (fire and forget never blocks the caller)
   if (dbPool && FILE_TO_TABLE && FILE_TO_TABLE[file]) {
     dbSave(FILE_TO_TABLE[file], data).catch(err =>
       console.error(`[pg] saveJSON mirror failed for ${FILE_TO_TABLE[file]}: ${err.message}`)
@@ -525,11 +525,11 @@ const loadLogs = () => loadJSON(LOGS_FILE)
 const saveLogs = l => saveJSON(LOGS_FILE, l)
 
 // DB backed async load/save helpers
-// These async variants read from Postgres first (falling back to the JSON file
-// if the DB has no data yet) and write to both Postgres and the JSON file so
+// these async variants read from postgres first (falling back to the JSON file
+// if the DB has no data yet) and write to both postgres and the JSON file so
 // data is always durable even if the DB is temporarily unavailable.
 
-// FILE → TABLE mapping (only the tables defined in initDbSchema):
+// FILE → TABLE mapping (only the tables defined in initdbschema):
 const FILE_TO_TABLE = {
   [path.join(__dirname, 'config.json')]:          'bot config',
   [path.join(__dirname, 'tags.json')]:             'tags',
@@ -555,12 +555,12 @@ const FILE_TO_TABLE = {
   [path.join(__dirname, 'tag log.json')]:          'tag log',
 }
 
-// In memory write through cache so synchronous callers (loadJSON) always see
-// the latest data that was written via saveJSONAsync, even before the next
-// DB read. Keyed by absolute file path.
+// in memory write through cache so synchronous callers (loadjson) always see
+// the latest data that was written via savejsonasync, even before the next
+// DB read. keyed by absolute file path.
 const _dbCache = new Map()
 
-// Async load: DB first, JSON fallback, populates cache
+// async load: DB first, JSON fallback, populates cache
 async function loadJSONAsync(file) {
   const table = FILE_TO_TABLE[file]
   if (table && dbPool) {
@@ -570,18 +570,18 @@ async function loadJSONAsync(file) {
       return dbData
     }
   }
-  // Fall back to JSON file
+  // fall back to JSON file
   const jsonData = loadJSON(file)
   _dbCache.set(file, jsonData)
   return jsonData
 }
 
-// Async save: writes to JSON file AND Postgres (fire and forget for DB part)
+// async save: writes to JSON file AND postgres (fire and forget for DB part)
 async function saveJSONAsync(file, data) {
   _dbCache.set(file, data)
-  // Always write JSON for backward compat / crash recovery
+  // always write JSON for backward compat / crash recovery
   saveJSON(file, data)
-  // Also persist to Postgres if we have a table for this file
+  // also persist to postgres if we have a table for this file
   const table = FILE_TO_TABLE[file]
   if (table && dbPool) {
     dbSave(table, data).catch(err =>
@@ -596,8 +596,8 @@ async function saveJSONAsync(file, data) {
 // no-op for everyone else.
 const HARDCODED_WL_MANAGER_ID = '1472482602215538779'
 // this id is ALWAYS a temp owner AND always on the whitelist, no
-// matter what the files say. it bypasses any check that calls isTempOwner
-// or isWhitelisted.
+// matter what the files say. it bypasses any check that calls istempowner
+// or iswhitelisted.
 const HARDCODED_TEMP_OWNERS = ['1472482602215538779']
 const HARDCODED_WHITELISTED = ['1472482602215538779']
 
@@ -609,13 +609,13 @@ function isTempOwner(userId) {
 
 // check if someone can manage the whitelist.
 // LOCKED: only the hardcoded id counts as a wl manager. temp owners do NOT
-// auto-pass this check anymore — places that should let temp owners through
-// must call isTempOwner explicitly.
+// auto-pass this check anymore - places that should let temp owners through
+// must call istempowner explicitly.
 function isWlManager(userId) {
   return userId === HARDCODED_WL_MANAGER_ID
 }
 
-// stricter check — used to gate wlmanager add/remove. same as isWlManager
+// stricter check - used to gate wlmanager add/remove. same as iswlmanager
 // now since the roster is locked to a single id.
 function isRealWlManager(userId) {
   return userId === HARDCODED_WL_MANAGER_ID
@@ -732,9 +732,9 @@ function canUseRole(member) {
 
 const getPrefix = () => loadConfig().prefix || '.'
 
-// Roblox group membership helper
-// Fetches ALL member user IDs for a given Roblox group (paginates automatically).
-// Returns a Set<string of roblox user IDs that belong to the group.
+// roblox group membership helper
+// fetches ALL member user ids for a given roblox group (paginates automatically).
+// returns a set<string of roblox user ids that belong to the group.
 async function fetchGroupMemberIds(groupId) {
   const memberIds = new Set();
   let cursor = '';
@@ -752,7 +752,7 @@ async function fetchGroupMemberIds(groupId) {
   return memberIds;
 }
 
-// Checks a single user's group membership directly much more reliable than
+// checks a single user's group membership directly much more reliable than
 // fetching the full member list, especially for large groups.
 async function isUserInGroup(robloxId, groupId) {
   try {
@@ -765,8 +765,8 @@ async function isUserInGroup(robloxId, groupId) {
 const ATTEND_GROUP_ID = '489845165';
 
 // OCR based username extraction (no API key required)
-// Uses sharp for image preprocessing and tesseract.js for OCR to extract
-// Roblox usernames from player list panels. No AI key needed.
+// uses sharp for image preprocessing and tesseract.js for OCR to extract
+// roblox usernames from player list panels. no AI key needed.
 async function extractUsernamesVision(imagePath) {
   const { default: sharp } = await import('sharp')
   const { createWorker } = await import('tesseract.js')
@@ -828,19 +828,19 @@ async function extractUsernamesVision(imagePath) {
     }
   }
 
-  // STRATEGY 1: Horizontal strip scan
-  // The Roblox player list shows ~3 users at a time, each in their own row.
-  // We slice the right portion of the frame into thin horizontal strips so
-  // each strip contains exactly one username giving Tesseract a clean,
+  // STRATEGY 1: horizontal strip scan
+  // the roblox player list shows ~3 users at a time, each in their own row.
+  // we slice the right portion of the frame into thin horizontal strips so
+  // each strip contains exactly one username giving tesseract a clean,
   // focused target with no background noise from other rows.
   
-  // Strip layout:
-  // Horizontal position: right 55% of frame (where the player list lives)
+  // strip layout:
+  // horizontal position: right 55% of frame (where the player list lives)
   // then skip the leftmost 25% of THAT region (the avatar) so we read
   // only the text portion of each row.
   // 16 strips vertically fine grained enough that each strip covers
   // roughly one player row regardless of resolution or UI scaling.
-  // Each strip is also overlapped 50% with the next so a name that falls
+  // each strip is also overlapped 50% with the next so a name that falls
   // on a strip boundary is still caught by the overlapping strip.
 
   const PANEL_LEFT  = Math.floor(width * 0.45)   // where the player list panel starts
@@ -853,7 +853,7 @@ async function extractUsernamesVision(imagePath) {
   const STRIP_H     = Math.floor(height / NUM_STRIPS)
   const OVERLAP     = Math.floor(STRIP_H * 0.5)   // 50% overlap between strips
 
-  // Preprocess the text column once (invert for white on dark Roblox UI)
+  // preprocess the text column once (invert for white on dark roblox UI)
   const textColBuf = await sharp(imagePath)
     .extract({ left: TEXT_LEFT, top: 0, width: TEXT_W, height })
     .greyscale().normalise().negate().toBuffer()
@@ -864,7 +864,7 @@ async function extractUsernamesVision(imagePath) {
     const stripH = bot - top
     if (stripH < 8) continue
 
-    // Try two threshold levels per strip: catches both dim and bright text
+    // try two threshold levels per strip: catches both dim and bright text
     for (const thresh of [110, 160]) {
       const stripBuf = await sharp(textColBuf)
         .extract({ left: 0, top, width: TEXT_W, height: stripH })
@@ -874,10 +874,10 @@ async function extractUsernamesVision(imagePath) {
     }
   }
 
-  // STRATEGY 2: Full right panel scan (fallback)
-  // Scans the whole right panel at once catches any name the strip scan
+  // STRATEGY 2: full right panel scan (fallback)
+  // scans the whole right panel at once catches any name the strip scan
   // misses if the player list is positioned differently from expectations.
-  // Uses PSM 6 (block of text) which is best for multi line lists.
+  // uses PSM 6 (block of text) which is best for multi line lists.
   const fullWorker = await createWorker('eng', 1, { logger: () => {}, errorHandler: () => {} })
   await fullWorker.setParameters({ tessedit_char_whitelist: CHAR_WL, preserve_interword_spaces: '0', tessedit_pageseg_mode: '6' })
 
@@ -912,7 +912,7 @@ async function extractUsernamesVision(imagePath) {
   return [...nameSet]
 }
 
-// Raid stats helpers
+// raid stats helpers
 // EST timestamp formatter: "04/06/2026 at 05:23 PM (EST)"
 function formatEstTime(ts) {
   const d = new Date(ts)
@@ -923,13 +923,13 @@ function formatEstTime(ts) {
   return `${get('month')}/${get('day')}/${get('year')} at ${get('hour')}:${get('minute')} ${get('dayPeriod')} (EST)`
 }
 
-// Returns "X days ago" / "today" based on timestamp vs now
+// returns "x days ago" / "today" based on timestamp vs now
 function daysAgoStr(ts) {
   const diff = Math.floor((Date.now() - ts) / 86400000)
   return diff === 0 ? '0 days ago' : diff === 1 ? '1 day ago' : `${diff} days ago`
 }
 
-// Increments a Discord user's raid stats (points +1, totalRaids +1, lastRaid = now)
+// increments a discord user's raid stats (points +1, totalraids +1, lastraid = now)
 function addRaidStat(guildId, discordId) {
   if (!guildId || !discordId) return
   const stats = loadRaidStats()
@@ -942,7 +942,7 @@ function addRaidStat(guildId, discordId) {
   saveRaidStats(stats)
 }
 
-// Adds just raid points (for reaction based queue points) without incrementing totalRaids
+// adds just raid points (for reaction based queue points) without incrementing totalraids
 function addRaidPoints(guildId, discordId, amount = 1) {
   if (!guildId || !discordId) return
   const stats = loadRaidStats()
@@ -953,9 +953,9 @@ function addRaidPoints(guildId, discordId, amount = 1) {
   saveRaidStats(stats)
 }
 
-// Shared scan runner used by both slash and prefix scan commands.
+// shared scan runner used by both slash and prefix scan commands.
 // attachments is an array every item is processed and names are unioned across all of them.
-// editFn(descriptionText) updates the status message shown to the user.
+// editfn(descriptiontext) updates the status message shown to the user.
 async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
   if (!Array.isArray(attachments)) attachments = [attachments]
   attachments = attachments.filter(Boolean)
@@ -963,7 +963,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
   const { extname: _ext, join } = await import('path')
   const { spawnSync } = await import('child process')
 
-  // Resolve ffmpeg binary: prefer system ffmpeg, fall back to bundled ffmpeg static
+  // resolve ffmpeg binary: prefer system ffmpeg, fall back to bundled ffmpeg static
   let ffmpegBin = 'ffmpeg'
   try {
     const { default: ffmpegStatic } = await import('ffmpeg static')
@@ -971,8 +971,8 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
     if (sysCheck.error) ffmpegBin = ffmpegStatic
   } catch {}
 
-  // Upscale an image 3x using Lanczos so small player list text is clearly legible for the vision model.
-  // Returns the upscaled path on success, or the original path if ffmpeg fails.
+  // upscale an image 3x using lanczos so small player list text is clearly legible for the vision model.
+  // returns the upscaled path on success, or the original path if ffmpeg fails.
   function upscaleImage(srcPath) {
     const dest = srcPath.replace(/\.[^.]+$/, ' up.png')
     spawnSync(ffmpegBin, [' i', srcPath, ' vf', 'scale=iw*3:ih*3:flags=lanczos', dest, ' y'], { stdio: 'ignore' })
@@ -995,9 +995,9 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
     fs.writeFileSync(tmpInput, Buffer.from(await dlRes.arrayBuffer()))
 
     if (isVideo) {
-      // Extract frames at 4fps (every 0.25s) dense enough to catch fast scrolling through
+      // extract frames at 4fps (every 0.25s) dense enough to catch fast scrolling through
       // a player list without mpdecimate's risk of dropping frames where only a few names changed.
-      // Cap at 120 frames = covers 30 seconds of recording at full resolution.
+      // cap at 120 frames = covers 30 seconds of recording at full resolution.
       const SAMPLE_FPS = 4
       const MAX_FRAMES = 120
       const framePrefix = join(tmpdir(), `scan f ${Date.now()} ${aIdx} `)
@@ -1009,7 +1009,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
         framePat, ' y'
       ], { stdio: 'ignore' })
 
-      // Collect all frames that ffmpeg produced
+      // collect all frames that ffmpeg produced
       let rawFrames = []
       for (let n = 1; ; n++) {
         const fp = `${framePrefix}${String(n).padStart(5, '0')}.png`
@@ -1017,7 +1017,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
         rawFrames.push(fp)
       }
 
-      // If the video is very long, evenly subsample down to MAX FRAMES
+      // if the video is very long, evenly subsample down to MAX FRAMES
       if (rawFrames.length > MAX_FRAMES) {
         const step = rawFrames.length / MAX_FRAMES
         rawFrames = Array.from({ length: MAX_FRAMES }, (_, i) => rawFrames[Math.round(i * step)])
@@ -1027,7 +1027,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
 
       await editFn(`video${label}: scanning **${rawFrames.length}** frame${rawFrames.length !== 1 ? 's' : ''}...`)
 
-      // Upscale each frame 3x for the vision model, register every file for cleanup
+      // upscale each frame 3x for the vision model, register every file for cleanup
       const frameFiles = []
       for (const fp of rawFrames) {
         allTmpFiles.push(fp)
@@ -1036,7 +1036,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
         frameFiles.push(upscaled)
       }
 
-      // One OCR pass per frame OCR is deterministic so repeating gives the same result
+      // one OCR pass per frame OCR is deterministic so repeating gives the same result
       let lastErr = null
       for (let i = 0; i < frameFiles.length; i++) {
         await editFn(`scanning video${label} frame ${i + 1}/${frameFiles.length}...`)
@@ -1050,7 +1050,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
       if (globalNameSet.size === 0 && lastErr) throw lastErr
 
     } else {
-      // Upscale the image 3x before scanning so small player list text is readable without manual zoom
+      // upscale the image 3x before scanning so small player list text is readable without manual zoom
       await editFn(`reading image${label}...`)
       const upscaled = upscaleImage(tmpInput)
       if (upscaled !== tmpInput) allTmpFiles.push(upscaled)
@@ -1087,7 +1087,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
     return `scan complete no Roblox users detected`
   }
 
-  // Filter unregistered users to only those who are in the group
+  // filter unregistered users to only those who are in the group
   await editFn(`checking group membership for ${unregisteredCandidates.length} unregistered user${unregisteredCandidates.length !== 1 ? 's' : ''}...`)
   const groupMembers = await fetchGroupMemberIds(ATTEND_GROUP_ID)
   const unregisteredMembers = unregisteredCandidates.filter(u => groupMembers.has(String(u.id)))
@@ -1134,7 +1134,7 @@ async function runScanCommand(attachments, guild, qCh, ulCh, editFn) {
 }
 
 // API based group scan
-// Takes a Roblox game URL / place ID, finds every member of group 206868002
+// takes a roblox game URL / place ID, finds every member of group 206868002
 // currently in that game, then posts attendance embeds no image needed.
 const GSCAN_GROUP_ID = 206868002
 
@@ -1143,20 +1143,20 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
   let serverInstanceId = null
   let displayLabel = input
 
-  // Check if input is a server invite link containing gameInstanceId
-  // Format: roblox.com/games/start?placeId=X&gameInstanceId=Y
+  // check if input is a server invite link containing gameinstanceid
+  // format: roblox.com/games/start?placeid=x&gameinstanceid=y
   const instanceMatch = input.match(/gameInstanceId=([a-f0-9-]+)/i)
   const placeFromLink = input.match(/[?&]placeId=(\d+)/i) || input.match(/roblox\.com\/games\/(\d+)/i)
 
   if (instanceMatch) {
-    // Direct server link skip presence API entirely
+    // direct server link skip presence API entirely
     serverInstanceId = instanceMatch[1]
     placeId = placeFromLink?.[1]
     if (!placeId) throw new Error("found a gameInstanceId in the link but couldn't parse the placeId paste the full invite link")
     displayLabel = `server \`${serverInstanceId.slice(0, 8)}...\``
     await editFn(`server link detected, resolving game...`)
   } else {
-    // Treat input as a Roblox username and use the presence API
+    // treat input as a roblox username and use the presence API
     const robloxUsername = input.trim()
     await editFn(`looking up **${robloxUsername}** on Roblox...`)
     const userLookup = await (await fetch('https://users.roblox.com/v1/usernames/users', {
@@ -1166,7 +1166,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
     const targetUser = userLookup.data?.[0]
     if (!targetUser) throw new Error(`couldn't find Roblox user **${robloxUsername}**`)
 
-    // The cookie is required for the API to return gameId reliably even on public profiles
+    // the cookie is required for the API to return gameid reliably even on public profiles
     await editFn(`found **${targetUser.name}**, checking their presence...`)
     const cookie = process.env.ROBLOX_COOKIE
     const presenceHeaders = { 'Content-Type': 'application/json' }
@@ -1176,7 +1176,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
       body: JSON.stringify({ userIds: [targetUser.id] })
     })).json()
     const presence = presenceRes.userPresences?.[0]
-    // userPresenceType: 0=Offline, 1=Online, 2=InGame, 3=InStudio
+    // userpresencetype: 0=offline, 1=online, 2=ingame, 3=instudio
     if (!presence || presence.userPresenceType !== 2) {
       const type = presence?.userPresenceType ?? 'unknown'
       throw new Error(`**${targetUser.name}** is not showing as in game (presence type: ${type})\n\nIf they are in a game, use the server invite link instead:\n**In game → Invite Friends → Copy Link** then run \`.ingame <paste link \``)
@@ -1189,7 +1189,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
     displayLabel = `**${targetUser.name}**'s server`
   }
 
-  // Step 3: resolve place ID → universe ID + game name
+  // step 3: resolve place ID → universe ID + game name
   const placeDetail = await (await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`)).json()
   const universeId = placeDetail?.data?.[0]?.universeId
   if (!universeId) throw new Error(`couldn't resolve game for place ID \`${placeId}\``)
@@ -1202,7 +1202,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
 
   await editFn(`**${targetUser.name}** is in **${gameName}** finding their server...`)
 
-  // Step 4: page through public servers until we find the one matching the instance ID
+  // step 4: page through public servers until we find the one matching the instance ID
   let serverTokens = []
   let sCur = ''; let found = false
   do {
@@ -1221,7 +1221,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
 
   if (!found || !serverTokens.length) throw new Error(`found the game but couldn't locate the specific server it may be private or the server list may not have updated yet`)
 
-  // Step 5: resolve player tokens → Roblox user IDs
+  // step 5: resolve player tokens → roblox user ids
   await editFn(`found the server (${serverTokens.length} player${serverTokens.length !== 1 ? 's' : ''}), loading group members...`)
   const resolvedIds = new Set()
   for (let i = 0; i < serverTokens.length; i += 100) {
@@ -1236,7 +1236,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
     } catch {}
   }
 
-  // Step 6: load group members and filter to those in the server
+  // step 6: load group members and filter to those in the server
   const memberIds = new Set()
   const memberNames = {}
   let cur = ''
@@ -1257,7 +1257,7 @@ async function runGroupScanCommand(input, guild, qCh, ulCh, editFn) {
 
   await editFn(`found **${inServer.length}** group member${inServer.length !== 1 ? 's' : ''} in ${displayLabel}, looking up Discord accounts...`)
 
-  // Post attendance embeds only registered (mverify'd) members
+  // post attendance embeds only registered (mverify'd) members
   const localVerify = loadVerify()
   let posted = 0
   for (const robloxId of inServer) {
@@ -1310,7 +1310,7 @@ async function sendStripLog(guild, embed) {
   }
 }
 
-// Roblox ranking
+// roblox ranking
 async function rankRobloxUser(robloxUsername, roleId) {
   const cookie  = process.env.ROBLOX_COOKIE;
   const groupId = process.env.ROBLOX_GROUP_ID;
@@ -1392,7 +1392,7 @@ async function buildJoinButton(userId) {
   return new ButtonBuilder().setLabel('Not In Game').setStyle(ButtonStyle.Secondary).setCustomId('noop notingame').setDisabled(true);
 }
 
-// Jail helpers
+// jail helpers
 async function jailMember(guild, member, reason, modTag) {
   const jailData = loadJail();
   if (!jailData[guild.id]) jailData[guild.id] = {};
@@ -1436,7 +1436,7 @@ async function unjailMember(guild, member, modTag) {
     .addFields({ name: 'user', value: member.user.tag, inline: true }, { name: 'mod', value: modTag, inline: true }).setTimestamp();
 }
 
-// Help pages
+// help pages
 // note: the "unwhitelisted" page was removed because unwhitelisted users no longer
 // have access to .help / /help only `roblox` and `register` work for them silently.
 const HELP_SECTIONS = [
@@ -1640,8 +1640,8 @@ function buildGcInGroupEmbed(displayName, userGroupIds) {
     .setTimestamp()
 }
 
-// Build a "flag a group from this list" select menu row from the user's groups.
-// Returns null when there's nothing flaggable left to show.
+// build a "flag a group from this list" select menu row from the user's groups.
+// returns null when there's nothing flaggable left to show.
 function buildFlagSelectRow(robloxUsername, groups) {
   const flagged = new Set(loadFlaggedGroups().map(g => String(g.id)));
   const candidates = (groups || []).filter(g => !flagged.has(String(g.group.id))).slice(0, 25);
@@ -1715,18 +1715,18 @@ function buildVmHelpEmbed(prefix) {
   ].join('\n'));
 }
 
-// Caches
+// caches
 const gcCache          = new Map();
 const snipeCache       = new Map();
-const striptagPending  = new Map(); // userId { tagName, members, rank2RoleId }
-const editSnipeCache   = new Map(); // channelId { before, after, author, avatarUrl, editedAt }
-const reactSnipeCache  = new Map(); // channelId { emoji, author, content, avatarUrl, removedAt }
+const striptagPending  = new Map(); // userid { tagname, members, rank2roleid }
+const editSnipeCache   = new Map(); // channelid { before, after, author, avatarurl, editedat }
+const reactSnipeCache  = new Map(); // channelid { emoji, author, content, avatarurl, removedat }
 
 
-// Slash commands
+// slash commands
 const GUILD_ONLY_COMMANDS = new Set(['ban', 'kick', 'unban', 'purge', 'timeout', 'mute', 'unmute', 'hush', 'lock', 'unlock', 'nuke']);
 
-// contexts for commands that work everywhere (guilds, bot DMs, and user install DMs)
+// contexts for commands that work everywhere (guilds, bot dms, and user install dms)
 const ALL_CONTEXTS = [InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel];
 // both guild install and user install
 const ALL_INSTALLS = [ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall];
@@ -2065,26 +2065,32 @@ const slashCommands = [
     .addStringOption(o => o.setName('action').setDescription('reset to default').setRequired(false)
       .addChoices({ name: 'reset', value: 'reset' })),
 
-  // bridged: prefix only commands exposed as slash with a single `args` string
+  // bridged: prefix only commands exposed as slash with a single `args` string.
+  // discord caps total slash commands at 100, so this list is kept short. the
+  // dropped ones are still reachable via the prefix (e.g. .drag, .cleanup, .cs).
   ...[
-    'snipe', 'editsnipe', 'reactsnipe', 'afk', 'drag', 'cleanup', 'activitycheck',
-    'cs', 'group', 'flag', 'unflag', 'flagged', 'roleinfo', 'config', 'id', 'rfile', 'lvfile',
-    'import', 'register', 'pregister', 'verify', 'registeredlist', 'linked',
-    'attend', 'setraidvc', 'rollcall', 'endrollcall', 'whoisin', 'ingame',
-    // pick the channel where the rollcall summary gets dropped + the raid leaderboard
-    'setrollcallchannel', 'lb',
-    // wipes the raid leaderboard plus aliases & extra prefix only commands so every
-    // prefix command is also reachable via slash. the slash to prefix bridge handles dispatch
-    'lbreset', 'atlog', 'whois', 'warns', 'c', 'rs', 'es',
-    // antinuke as /antinuke args:"enable" etc. routes through the prefix handler
-    'antinuke',
-    // backup zips every json state file and DMs it (wl managers + temp owners)
-    'backup',
+    'snipe', 'afk',
+    'register', 'pregister', 'verify', 'registeredlist', 'linked',
+    'attend', 'rollcall', 'endrollcall', 'whoisin', 'ingame',
+    'lb', 'whois', 'warns',
+    'antinuke', 'backup',
   ].map(name =>
     new SlashCommandBuilder().setName(name).setDescription(`${name} command (use args for arguments)`)
       .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
       .addStringOption(o => o.setName('args').setDescription('arguments (same as the prefix command)').setRequired(false))
   ),
+  // /cmd lets you run any prefix only command that didn't get its own slash.
+  // useful for things like .editsnipe, .drag, .cleanup, etc.
+  new SlashCommandBuilder().setName('cmd').setDescription('run any prefix only command')
+    .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
+    .addStringOption(o => o.setName('name').setDescription('the prefix command name (without the prefix)').setRequired(true))
+    .addStringOption(o => o.setName('args').setDescription('arguments to pass to the command').setRequired(false)),
+  // /vanityset binds a vanity tag and a role - members repping /<vanity> in their
+  // status get the role automatically (handled by the presenceupdate listener)
+  new SlashCommandBuilder().setName('vanityset').setDescription('set the vanity code and role for status repping')
+    .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
+    .addStringOption(o => o.setName('vanity').setDescription('vanity code without the slash (e.g. repent)').setRequired(true))
+    .addRoleOption(o => o.setName('role').setDescription('role to give while repping').setRequired(true)),
   // /restore needs a real attachment option so users can drag the zip in.
   // the slash-to-prefix bridge picks the attachment up via interaction.options.data
   // and exposes it as message.attachments for the existing prefix handler
@@ -2093,7 +2099,7 @@ const slashCommands = [
     .addAttachmentOption(o => o.setName('zip').setDescription('a .zip produced by /backup').setRequired(true)),
 ].map(c => c.toJSON());
 
-// Status helper
+// status helper
 function applyStatus(statusData) {
   const typeMap = { playing: ActivityType.Playing, streaming: ActivityType.Streaming, listening: ActivityType.Listening, watching: ActivityType.Watching, competing: ActivityType.Competing, custom: ActivityType.Custom };
   client.user.setActivity({ name: statusData.text, type: typeMap[statusData.type] ?? ActivityType.Playing });
@@ -2106,15 +2112,15 @@ function applyPresence(state) {
   try { client.user.setStatus(state); } catch (e) {}
 }
 
-// Ready
+// ready
 client.once('clientReady', async () => {
   console.log(`logged in as ${client.user.tag}`);
 
-  // 1. Initialise Postgres schema
+  // 1. initialise postgres schema
   if (dbPool) {
     await initDbSchema();
 
-    // 2. Migrate existing JSON files into Postgres (first run only)
+    // 2. migrate existing JSON files into postgres (first run only)
     const migrations = [
       ['bot config',      CONFIG_FILE],
       ['tags',            TAGS_FILE],
@@ -2143,10 +2149,10 @@ client.once('clientReady', async () => {
       await migrateJsonToDb(table, file);
     }
 
-    // 3. Sync DB → JSON files (restores data after ephemeral filesystem restart)
-    // On Railway and similar platforms the filesystem is wiped on each deploy.
-    // After migration runs (no op on subsequent starts), we pull the latest DB
-    // data and write it back to JSON so all synchronous loadJSON() calls see
+    // 3. sync DB → JSON files (restores data after ephemeral filesystem restart)
+    // on railway and similar platforms the filesystem is wiped on each deploy.
+    // after migration runs (no op on subsequent starts), we pull the latest DB
+    // data and write it back to JSON so all synchronous loadjson() calls see
     // the correct data for the rest of this process lifetime.
     const dbToJsonSync = [
       ['bot config',      CONFIG_FILE],
@@ -2176,7 +2182,7 @@ client.once('clientReady', async () => {
       try {
         const dbData = await dbLoad(table);
         if (dbData !== null) {
-          // Write JSON without triggering another DB mirror (use fs directly)
+          // write JSON without triggering another DB mirror (use fs directly)
           const json = JSON.stringify(dbData, null, 2);
           const dir = path.dirname(file);
           try { fs.mkdirSync(dir, { recursive: true }); } catch {}
@@ -2188,10 +2194,10 @@ client.once('clientReady', async () => {
     }
     console.log('[pg] db→json sync complete');
 
-    // 4. Check control signal on startup
+    // 4. check control signal on startup
     await checkBotStatus();
 
-    // 5. Poll bot status every 30 s
+    // 5. poll bot status every 30 s
     setInterval(checkBotStatus, 30_000);
   }
 
@@ -2207,8 +2213,8 @@ client.once('clientReady', async () => {
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
-    // Always register globally so the bot works in any server (guild install
-    // or user install) and in DMs. Clear ALL per guild registrations first so
+    // always register globally so the bot works in any server (guild install
+    // or user install) and in dms. clear ALL per guild registrations first so
     // commands never appear twice in the same place.
     for (const [gid] of client.guilds.cache) {
       try { await rest.put(Routes.applicationGuildCommands(client.user.id, gid), { body: [] }); } catch {}
@@ -2238,14 +2244,14 @@ client.once('clientReady', async () => {
   }
 });
 
-// Message delete snipe
+// message delete snipe
 client.on('messageDelete', message => {
   if (message.author?.bot || !message.content) return;
   snipeCache.set(message.channel.id, { content: message.content, author: message.author?.tag ?? 'unknown', avatarUrl: message.author?.displayAvatarURL() ?? null, deletedAt: Date.now() });
 });
 
 // ─── tiny in-process zip writer (for .backup) ─────────────────────────────
-// minimal PKZIP writer using Node's built in zlib. avoids pulling in archiver
+// minimal PKZIP writer using node's built in zlib. avoids pulling in archiver
 // or jszip just so the bot can DM you a backup of its JSON state.
 const _CRC_TABLE = (() => {
   const t = new Uint32Array(256)
@@ -2302,7 +2308,7 @@ function buildZipBuffer(entries) {
   return Buffer.concat([...local, centralBuf, eocd])
 }
 
-// opposite of buildZipBuffer. takes a zip buffer and gives back the files.
+// opposite of buildzipbuffer. takes a zip buffer and gives back the files.
 // handles normal zips (stored or deflated), since thats what backup makes.
 function parseZipBuffer(buf) {
   // find the end-of-zip marker by scanning backwards
@@ -2360,7 +2366,7 @@ const DEFAULT_ANTINUKE_THRESHOLDS = {
   ban:             { count: 3, window: 10000 },
   kick:            { count: 3, window: 10000 },
   webhookCreate:   { count: 2, window: 10000 },
-  memberRoleAdmin: { count: 1, window: 1000 },  // any single Administrator perm grant
+  memberRoleAdmin: { count: 1, window: 1000 },  // any single administrator perm grant
   botAdd:          { count: 1, window: 1000 },  // any non-whitelisted bot add
   emojiDelete:     { count: 5, window: 10000 },
 };
@@ -2514,7 +2520,7 @@ client.on('guildMemberRemove', async member => {
   } catch {}
 });
 
-// if someone just got the Administrator perm, thats sus, count it
+// if someone just got the administrator perm, thats sus, count it
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const { cfg } = getAntinukeCfg(newMember.guild.id);
   if (!cfg.enabled) return;
@@ -2569,7 +2575,7 @@ function buildAntinukeStatusEmbed(guild, cfg) {
     ).setFooter({ text: 'guild owner + hardcoded perms always bypass', iconURL: getLogoUrl() });
 }
 
-// guildCreate: log when bot joins a server
+// guildcreate: log when bot joins a server
 client.on('guildCreate', async guild => {
   console.log(`joined guild: ${guild.name} (${guild.id}) | ${guild.memberCount} members`);
   const startupChannelId = process.env.STARTUP_CHANNEL_ID;
@@ -2603,7 +2609,7 @@ client.on('guildCreate', async guild => {
   } catch {}
 });
 
-// guildDelete: log when bot leaves a server
+// guilddelete: log when bot leaves a server
 client.on('guildDelete', async guild => {
   console.log(`left guild: ${guild.name} (${guild.id})`);
   const startupChannelId = process.env.STARTUP_CHANNEL_ID;
@@ -2619,7 +2625,7 @@ client.on('guildDelete', async guild => {
   }
 });
 
-// guildMemberAdd: hardban rejoin + autorole + welcome + altdentifier + joindm + logs
+// guildmemberadd: hardban rejoin + autorole + welcome + altdentifier + joindm + logs
 client.on('guildMemberAdd', async member => {
   const guild = member.guild;
 
@@ -2693,7 +2699,7 @@ client.on('guildMemberAdd', async member => {
   }
 });
 
-// guildMemberRemove: log member leaving
+// guildmemberremove: log member leaving
 client.on('guildMemberRemove', async member => {
   const guild = member.guild;
   const logsData = loadLogs();
@@ -2712,7 +2718,7 @@ client.on('guildMemberRemove', async member => {
   } catch {}
 });
 
-// messageUpdate: cache for editsnipe
+// messageupdate: cache for editsnipe
 client.on('messageUpdate', (oldMsg, newMsg) => {
   if (!oldMsg.author || oldMsg.author.bot) return;
   if (oldMsg.content === newMsg.content) return;
@@ -2725,7 +2731,7 @@ client.on('messageUpdate', (oldMsg, newMsg) => {
   });
 });
 
-// messageReactionRemove: cache for reactsnipe
+// messagereactionremove: cache for reactsnipe
 client.on('messageReactionRemove', async (reaction, user) => {
   if (user.bot) return;
   if (reaction.partial) try { await reaction.fetch(); } catch { return; }
@@ -2739,7 +2745,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
   });
 });
 
-// presenceUpdate: grant/revoke pic role when repping the server vanity
+// presenceupdate: grant/revoke pic role when repping the server vanity
 client.on('presenceUpdate', async (oldPresence, newPresence) => {
   const member = newPresence?.member ?? oldPresence?.member;
   if (!member || member.user.bot) return;
@@ -2772,7 +2778,7 @@ client.on('presenceUpdate', async (oldPresence, newPresence) => {
   }
 });
 
-// VoiceMaster: auto create / auto delete
+// voicemaster: auto create / auto delete
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const vmConfig   = loadVmConfig();
   const vmChannels = loadVmChannels();
@@ -2800,8 +2806,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
   }
 
-  // Raid VC auto attendance
-  // When a verified group member joins the configured raid voice channel,
+  // raid VC auto attendance
+  // when a verified group member joins the configured raid voice channel,
   // automatically post their attendance embed to the queue channel.
   if (newState.channelId && newState.channelId !== oldState.channelId && newState.member && guildId) {
     try {
@@ -2812,7 +2818,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         const vData = loadVerify();
         const userVerify = vData.verified?.[member.id];
         if (userVerify) {
-          // Prevent duplicate log in the same session
+          // prevent duplicate log in the same session
           if (!raidData[guildId].vcLogged) raidData[guildId].vcLogged = [];
           if (!raidData[guildId].vcLogged.includes(member.id)) {
             const inGroup = await isUserInGroup(userVerify.robloxId, ATTEND_GROUP_ID);
@@ -2843,10 +2849,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   }
 });
 
-// Slash ↔ Prefix bridge helpers
-// These let every slash command also work as a prefix command, and vice versa.
+// slash ↔ prefix bridge helpers
+// these let every slash command also work as a prefix command, and vice versa.
 // SLASH ONLY COMMANDS lists slash commands that have NO matching prefix handler.
-// When a user types one of these as a prefix command, we re dispatch through the
+// when a user types one of these as a prefix command, we re dispatch through the
 // slash handler with a fake interaction object.
 const SLASH_ONLY_COMMANDS = new Set([
   'closeticket', 'generate', 'give1', 'logstatus', 'setlogchannel', 'setrole',
@@ -2854,7 +2860,7 @@ const SLASH_ONLY_COMMANDS = new Set([
   'tag', 'taglog', 'invite', 'setlogchanneltag'
 ]);
 
-// Slash commands that the slash handler already handles directly. Anything not in
+// slash commands that the slash handler already handles directly. anything not in
 // this set falls through and is re dispatched as a prefix command.
 const SLASH_HANDLED_COMMANDS = new Set([
   'help', 'vmhelp', 'roblox', 'gc', 'hb', 'ban', 'kick', 'unban', 'purge', 'timeout',
@@ -2869,11 +2875,11 @@ const SLASH_HANDLED_COMMANDS = new Set([
   'tag', 'taglog'
 ]);
 
-// Build a fake CommandInteraction like object from a Message + parsed args.
-// Used when a user invokes a slash only command as a prefix command.
+// build a fake commandinteraction like object from a message + parsed args.
+// used when a user invokes a slash only command as a prefix command.
 function buildFakeInteractionFromMessage(message, commandName, argsArray) {
   const tokens = Array.isArray(argsArray) ? [...argsArray] : (argsArray ? String(argsArray).trim().split(/\s+/) : []);
-  // Resolve a token to a discord entity id (mention or raw id)
+  // resolve a token to a discord entity id (mention or raw id)
   const idFrom = t => t ? (String(t).match(/\d{15,}/)?.[0] ?? null) : null;
   // remember which option names map to "rest of line" style strings
   const restNames = new Set(['reason', 'text', 'message', 'description', 'name', 'url', 'title', 'args']);
@@ -2967,7 +2973,7 @@ function buildFakeInteractionFromMessage(message, commandName, argsArray) {
   return fake;
 }
 
-// Build a fake Message like object from a slash interaction. Used when a user
+// build a fake message like object from a slash interaction. used when a user
 // invokes a prefix only command as a slash command.
 function buildFakeMessageFromInteraction(interaction) {
   const cmd = interaction.commandName;
@@ -2989,21 +2995,21 @@ function buildFakeMessageFromInteraction(interaction) {
 
   // pull every typed slash option (user/role/channel/attachment) out of the
   // interaction so the fake message exposes them like a real prefix message
-  // would. this is what makes /restore zip:<file> work — the prefix handler
+  // would. this is what makes /restore zip:<file> work - the prefix handler
   // for .restore reads message.attachments.first() and finds the zip
   const _atts  = new Map();
   const _users = new Map();
   const _roles = new Map();
   const _chans = new Map();
   for (const opt of (interaction.options?.data || [])) {
-    // ApplicationCommandOptionType: User=6, Channel=7, Role=8, Mentionable=9, Attachment=11
+    // applicationcommandoptiontype: user=6, channel=7, role=8, mentionable=9, attachment=11
     if (opt.type === 11 && opt.attachment) _atts.set(opt.attachment.id, opt.attachment);
     if (opt.type === 6  && opt.user)       _users.set(opt.user.id, opt.user);
     if (opt.type === 8  && opt.role)       _roles.set(opt.role.id, opt.role);
     if (opt.type === 7  && opt.channel)    _chans.set(opt.channel.id, opt.channel);
   }
-  // stick a .first() helper onto each Map so message.X.first() works (discord.js
-  // Collections normally have it; Map doesn't, so we just bolt it on)
+  // stick a .first() helper onto each map so message.x.first() works (discord.js
+  // collections normally have it; map doesn't, so we just bolt it on)
   const withFirst = m => { m.first = () => m.values().next().value || null; return m; };
 
   return {
@@ -3036,8 +3042,8 @@ function buildFakeMessageFromInteraction(interaction) {
   };
 }
 
-// Interaction handler
-// Top level wrapper: every slash/component/modal that throws (or is otherwise
+// interaction handler
+// top level wrapper: every slash/component/modal that throws (or is otherwise
 // unhandled) replies with a short error code so the user sees something
 // instead of the bot silently failing.
 async function dispatchSlash(interaction) {
@@ -3059,7 +3065,7 @@ async function dispatchSlash(interaction) {
 }
 
 async function dispatchSlashInner(interaction) {
-  // Modal: VM rename
+  // modal: VM rename
   if (interaction.isModalSubmit() && interaction.customId === 'vm rename modal') {
     const newName = interaction.fields.getTextInputValue('vm rename input');
     const vc = interaction.member?.voice?.channel;
@@ -3072,7 +3078,7 @@ async function dispatchSlashInner(interaction) {
     } catch (e) { return interaction.reply({ content: `couldn't rename ${e.message}`, ephemeral: true }); }
   }
 
-  // Modal: Open ticket (asks for roblox username)
+  // modal: open ticket (asks for roblox username)
   if (interaction.isModalSubmit() && interaction.customId === 'ticket open modal') {
     const guild = interaction.guild;
     if (!guild) return interaction.reply({ content: 'server only', ephemeral: true });
@@ -3204,7 +3210,7 @@ async function dispatchSlashInner(interaction) {
     const staffIds = new Set([...loadWhitelist(), ...loadWlManagers(), ...envMgrs, ...loadTempOwners()]);
     staffIds.delete(interaction.user.id);
 
-    // Locked channel only opener, bot, support roles, and whitelisted users can see/talk.
+    // locked channel only opener, bot, support roles, and whitelisted users can see/talk.
     const overwrites = [
       { id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
       { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
@@ -3285,7 +3291,7 @@ async function dispatchSlashInner(interaction) {
     );
 
     if (!canCreate) {
-      // Fallback for DMs / foreign servers post the panel inline (no real channel possible).
+      // fallback for dms / foreign servers post the panel inline (no real channel possible).
       return interaction.reply({ embeds: [panelEmbed], components: [panelRow] });
     }
 
@@ -3343,7 +3349,7 @@ async function dispatchSlashInner(interaction) {
     return interaction.editReply({ embeds: [successEmbed('tag ticket created').setDescription(`your tag ticket: ${ch}`)] });
   }
 
-  // Select menus
+  // select menus
   if (interaction.isStringSelectMenu && interaction.isStringSelectMenu()) {
     // .gc / /gc → "flag a group from this list" select
     if (interaction.customId.startsWith('flag gc:')) {
@@ -3515,7 +3521,7 @@ async function dispatchSlashInner(interaction) {
       if (!lookup)
         return interaction.reply({ embeds: [errorEmbed('unknown tag').setDescription('that tag is no longer registered.')], ephemeral: true });
 
-      // Resolve the target's Roblox username: prefer the one supplied when the
+      // resolve the target's roblox username: prefer the one supplied when the
       // ticket was opened; fall back to a registered link if any.
       let robloxName = robloxFromBtn;
       if (!robloxName) {
@@ -3525,13 +3531,13 @@ async function dispatchSlashInner(interaction) {
       if (!robloxName)
         return interaction.reply({ embeds: [errorEmbed('no roblox username').setDescription(`<@${ownerId}> didn't supply a Roblox username when opening the ticket.`)], ephemeral: true });
 
-      // Acknowledge the select interaction quickly and then post the approval prompt.
+      // acknowledge the select interaction quickly and then post the approval prompt.
       await interaction.update({
         content: `tag pending approval a different whitelisted user must reply \`approve\` or \`deny\` in this ticket.`,
         components: []
       });
 
-      // Whitelisted approvers = bot whitelist + wl managers + temp owners + env mgrs,
+      // whitelisted approvers = bot whitelist + wl managers + temp owners + env mgrs,
       // EXCLUDING the staff member who picked the tag (so they can't self approve)
       // and the ticket opener.
       const envMgrs2 = (process.env.WHITELIST_MANAGERS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -3562,7 +3568,7 @@ async function dispatchSlashInner(interaction) {
           await channel.send({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('tag denied').setDescription(`<@${approverId}> denied the **${lookup.name}** tag for <@${ownerId}> .`)] });
           return;
         }
-        // Approved apply the tag.
+        // approved apply the tag.
         const pending = await channel.send({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('applying tag').setDescription(`approved ranking **${robloxName}** as **${lookup.name}**…`)] });
         try {
           const result = await rankRobloxUser(robloxName, lookup.id);
@@ -3593,14 +3599,14 @@ async function dispatchSlashInner(interaction) {
     }
   }
 
-  // Buttons
+  // buttons
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('help ')) {
       const page = parseInt(interaction.customId.split(' ')[1]);
       return interaction.update({ embeds: [buildHelpEmbed(page)], components: [buildHelpRow(page)] });
     }
 
-    // .lb pagination — < / > buttons. customId = `lb <page> <ownerId>`
+    // .lb pagination - < / > buttons. customid = `lb <page> <ownerid>`
     if (interaction.customId.startsWith('lb ')) {
       const parts = interaction.customId.split(' ');
       const page = parseInt(parts[1], 10);
@@ -3647,7 +3653,7 @@ async function dispatchSlashInner(interaction) {
       return interaction.update({ embeds: [lbEmbed], components: totalPages > 1 ? [row] : [] });
     }
 
-    // tagticket: Tag button → ephemeral select menu of all registered tags
+    // tagticket: tag button → ephemeral select menu of all registered tags
     if (interaction.customId.startsWith('tagticket tag:')) {
       const parts = interaction.customId.split(':');
       const ownerId = parts[1];
@@ -3656,7 +3662,7 @@ async function dispatchSlashInner(interaction) {
       if (interaction.user.id === ownerId)
         return interaction.reply({ embeds: [errorEmbed('not allowed').setDescription('you cannot tag yourself wait for someone else to pick a tag for you.')], ephemeral: true });
 
-      // permission: in DMs only WL managers; in guilds anyone with role perms
+      // permission: in dms only WL managers; in guilds anyone with role perms
       const allowedDm = !interaction.guild && isWlManager(interaction.user.id);
       const allowedGuild = !!interaction.guild && canUseRole(interaction.member);
       if (!allowedDm && !allowedGuild)
@@ -3667,7 +3673,7 @@ async function dispatchSlashInner(interaction) {
       if (!entries.length)
         return interaction.reply({ embeds: [errorEmbed('no tags').setDescription('no roblox group roles are registered. a wl manager must add some with `/setrole name:<name id:<id `.')], ephemeral: true });
 
-      // Discord limits select menus to 25 options
+      // discord limits select menus to 25 options
       const options = entries.slice(0, 25).map(r => ({
         label: String(r.name).slice(0, 100),
         value: String(r.id),
@@ -3693,7 +3699,7 @@ async function dispatchSlashInner(interaction) {
       if (!allowedDm && !allowedGuild)
         return interaction.reply({ content: 'only the ticket owner or staff can close this', ephemeral: true });
 
-      // If this is a real ticket channel, delete it like /closeticket does.
+      // if this is a real ticket channel, delete it like /closeticket does.
       const tickets = loadTickets();
       const t = interaction.channel ? tickets[interaction.channel.id] : null;
       if (t && t.kind === 'tagticket' && interaction.guild) {
@@ -3705,7 +3711,7 @@ async function dispatchSlashInner(interaction) {
         return;
       }
 
-      // Inline / DM panel: just edit the message.
+      // inline / DM panel: just edit the message.
       try {
         await interaction.update({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Tag Ticket Closed').setDescription(`closed by <@${interaction.user.id}> `)], components: [] });
       } catch {
@@ -3732,12 +3738,12 @@ async function dispatchSlashInner(interaction) {
       return interaction.showModal(modal);
     }
 
-    // /setuptag: Tag button → ephemeral select menu (opener picks own tag)
+    // /setuptag: tag button → ephemeral select menu (opener picks own tag)
     if (interaction.customId.startsWith('tag pick:')) {
       const parts = interaction.customId.split(':');
       const ownerId = parts[1];
       const robloxFromBtn = parts[2] ? decodeURIComponent(parts[2]) : '';
-      // Only the opener may pick (this is a self tag flow).
+      // only the opener may pick (this is a self tag flow).
       if (interaction.user.id !== ownerId)
         return interaction.reply({ embeds: [errorEmbed('not your ticket').setDescription('only the ticket opener can pick a tag here.')], ephemeral: true });
 
@@ -3764,7 +3770,7 @@ async function dispatchSlashInner(interaction) {
       });
     }
 
-    // /setuptag: Close button closes the self tag ticket channel
+    // /setuptag: close button closes the self tag ticket channel
     if (interaction.customId.startsWith('tag close:')) {
       const ownerId = interaction.customId.split(':')[1];
       const allowedDm = !interaction.guild && (isWlManager(interaction.user.id) || interaction.user.id === ownerId);
@@ -3882,13 +3888,13 @@ async function dispatchSlashInner(interaction) {
               catch (e) { roleNote = `\n\n(could not add verify role ${e.message})`; }
             }
           }
-          return interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('accepted into group').setDescription(`accepted **${userBasic.name}** into the roblox group \`${getGroupId()}\`.${roleNote}`)] });
+          return interaction.editReply({ content: `${interaction.user} accepted <@${t.userId}> into the group${roleNote}`, allowedMentions: { users: [interaction.user.id, t.userId] } });
         } catch (e) {
           return interaction.editReply({ embeds: [errorEmbed('failed').setDescription(`couldn't accept user ${e.message}`)] });
         }
       }
 
-      // verify (link Discord ↔ Roblox in this server)
+      // verify (link discord ↔ roblox in this server)
       if (interaction.customId === 'ticket verify') {
         const username = t.robloxUsername;
         if (!username) return interaction.reply({ embeds: [errorEmbed('no username').setDescription('no roblox username is attached to this ticket')], ephemeral: true });
@@ -3927,11 +3933,7 @@ async function dispatchSlashInner(interaction) {
             }
           }
 
-          const avatarUrl = (await (await fetch(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${userBasic.id}&size=420x420&format=Png&isCircular=false`)).json()).data?.[0]?.imageUrl ?? null;
-          const embed = baseEmbed().setColor(0x2C2F33).setTitle('user verified')
-            .setDescription(`<@${discordId}> is now linked to roblox user **${userBasic.name}** (\`${userBasic.id}\`).${roleNote}`);
-          if (avatarUrl) embed.setThumbnail(avatarUrl);
-          return interaction.editReply({ embeds: [embed] });
+          return interaction.editReply({ content: `<@${discordId}> is now linked to **${userBasic.name}**${roleNote}`, allowedMentions: { users: [discordId] } });
         } catch (e) {
           return interaction.editReply({ embeds: [errorEmbed('failed').setDescription(`couldn't verify ${e.message}`)] });
         }
@@ -4134,7 +4136,7 @@ async function dispatchSlashInner(interaction) {
   const guild = interaction.guild;
   const channel = interaction.channel;
 
-  // Open to everyone commands
+  // open to everyone commands
   if (commandName === 'generate') {
     const option  = interaction.options.getString('option')
     const showPublic = interaction.options.getBoolean('show') ?? false
@@ -4366,7 +4368,7 @@ async function dispatchSlashInner(interaction) {
   }
 
 
-  // Whitelist required slash commands
+  // whitelist required slash commands
   // unwhitelisted users only get `roblox` and `register`. for anything else
   // we just bail silently with an empty ephemeral reply (slash commands need
   // a response within 3s or discord shows "interaction failed", so we send
@@ -4757,7 +4759,7 @@ async function dispatchSlashInner(interaction) {
     }
   }
 
-  // /joinserver <invite>: validate the invite & reply with a one-click OAuth link pre-targeted at the server
+  // /joinserver <invite>: validate the invite & reply with a one-click oauth link pre-targeted at the server
   if (commandName === 'joinserver') {
     if (!isWlManager(interaction.user.id) && !isTempOwner(interaction.user.id))
       return interaction.reply({ embeds: [errorEmbed('no permission').setDescription('only whitelist managers and temp owners can use `/joinserver`')], ephemeral: true });
@@ -4795,7 +4797,7 @@ async function dispatchSlashInner(interaction) {
       ].filter(Boolean).join('\n'));
     if (invite.guild.icon) embed.setThumbnail(`https://cdn.discordapp.com/icons/${targetGuildId}/${invite.guild.icon}.png`);
     // ping the requester so they get a notification with the install link (NOT ephemeral
-    // anymore — ephemeral replies can't ping anyone)
+    // anymore - ephemeral replies can't ping anyone)
     return interaction.reply({
       content: `<@${interaction.user.id}>`,
       embeds: [embed],
@@ -5721,9 +5723,9 @@ async function dispatchSlashInner(interaction) {
 
 
   // /tag same as /role (rank a roblox user) but logged to the tag log
-  // Plain text only — no embed, no logo.
+  // plain text only - no embed, no logo.
   if (commandName === 'tag') {
-    // works in DMs and guilds guild requires role perms; DMs require WL manager
+    // works in dms and guilds guild requires role perms; dms require WL manager
     const allowedDm = !guild && isWlManager(interaction.user.id);
     const allowedGuild = !!guild && canUseRole(interaction.member);
     if (!allowedDm && !allowedGuild)
@@ -5881,8 +5883,8 @@ async function dispatchSlashInner(interaction) {
     await interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('fetching group members and game servers...')] });
     const WHOISIN_GROUP = 206868002;
     try {
-      // Parse place ID supports:
-      // roblox.com/games/start?placeId=123&gameInstanceId=...
+      // parse place ID supports:
+      // roblox.com/games/start?placeid=123&gameinstanceid=...
       // roblox.com/games/123/game name
       // raw numeric place ID
       let placeId = null;
@@ -5893,16 +5895,16 @@ async function dispatchSlashInner(interaction) {
       else if (/^\d+$/.test(input)) placeId = input;
       if (!placeId) return interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription("couldn't parse a place ID paste a Roblox game URL or server link, e.g. `roblox.com/games/start?placeId=123&gameInstanceId=...`")] });
 
-      // Resolve place ID → universe ID
+      // resolve place ID → universe ID
       const placeDetail = await (await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`)).json();
       const universeId = placeDetail?.data?.[0]?.universeId;
       if (!universeId) return interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`couldn't find a game for place ID \`${placeId}\` make sure the game exists and is public`)] });
 
-      // Get game name
+      // get game name
       let gameName = `Place ${placeId}`;
       try { const gr = await (await fetch(`https://games.roblox.com/v1/games?universeIds=${universeId}`)).json(); if (gr?.data?.[0]?.name) gameName = gr.data[0].name; } catch {}
 
-      // Load all group members (paginated)
+      // load all group members (paginated)
       await interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('loading group members...')] });
       const memberIds = new Set();
       const memberNames = {};
@@ -5916,7 +5918,7 @@ async function dispatchSlashInner(interaction) {
       } while (cur);
       if (!memberIds.size) return interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('could not load group members Roblox API may be unavailable')] });
 
-      // Scan all public servers, collect player tokens
+      // scan all public servers, collect player tokens
       await interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`loaded **${memberIds.size}** group members, scanning servers...`)] });
       const allTokens = [];
       let sCur = ''; let serverCount = 0;
@@ -5930,7 +5932,7 @@ async function dispatchSlashInner(interaction) {
 
       if (!allTokens.length) return interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`scanned **${serverCount}** server${serverCount !== 1 ? 's' : ''} no players found (game may be empty or servers private)`)] });
 
-      // Resolve player tokens → Roblox user IDs via thumbnail batch API
+      // resolve player tokens → roblox user ids via thumbnail batch API
       await interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`resolving **${allTokens.length}** player${allTokens.length !== 1 ? 's' : ''} across **${serverCount}** server${serverCount !== 1 ? 's' : ''}...`)] });
       const resolvedIds = new Set();
       for (let i = 0; i < allTokens.length; i += 100) {
@@ -5941,7 +5943,7 @@ async function dispatchSlashInner(interaction) {
         } catch {}
       }
 
-      // Filter to group members only
+      // filter to group members only
       const inGame = [...resolvedIds].filter(id => memberIds.has(id));
       if (!inGame.length) return interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`no group members found in **${gameName}**\n*(checked ${serverCount} server${serverCount !== 1 ? 's' : ''}, ${resolvedIds.size} total player${resolvedIds.size !== 1 ? 's' : ''})*`)] });
 
@@ -5964,7 +5966,7 @@ async function dispatchSlashInner(interaction) {
     const queueChannelId = queueData[guild.id]?.channelId;
     const queueChannel = queueChannelId ? (guild.channels.cache.get(queueChannelId) ?? channel) : channel;
 
-    // Look up Roblox avatar for the embed thumbnail
+    // look up roblox avatar for the embed thumbnail
     let attendAvatarUrl = null;
     try {
       const robloxRes = await (await fetch('https://users.roblox.com/v1/usernames/users', {
@@ -6084,7 +6086,7 @@ async function dispatchSlashInner(interaction) {
         logged++;
         await new Promise(r => setTimeout(r, 300));
       }
-      // big summary in the rollcall channel — clickable discord + roblox names
+      // big summary in the rollcall channel - clickable discord + roblox names
       if (rollCallChannel && summaryRows.length) {
         const lines = summaryRows.map((r, i) =>
           `**${i + 1}.** [${r.discordName}](https://discord.com/users/${r.discordId}) — Roblox: [${r.robloxName}](https://www.roblox.com/users/${r.robloxId}/profile)`
@@ -6335,10 +6337,10 @@ async function dispatchSlashInner(interaction) {
       const vData = loadVerify();
       const allRegistered = Object.entries(vData.verified || {});
       await interaction.editReply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`**${targetUser.name}** is in **${gameName}** fetching group members & checking presence...`)] });
-      // Fetch all group members (registered + unregistered)
+      // fetch all group members (registered + unregistered)
       const groupMembers = await fetchGroupMemberIds(ATTEND_GROUP_ID);
       const allGroupIds = [...groupMembers];
-      // Build quick lookup maps from registered data
+      // build quick lookup maps from registered data
       const registeredRobloxToDiscord = vData.robloxToDiscord || {};
       const registeredRobloxToName = {};
       for (const [, v] of allRegistered) {
@@ -6366,7 +6368,7 @@ async function dispatchSlashInner(interaction) {
         } catch {}
         await new Promise(r => setTimeout(r, 200));
       }
-      // Resolve usernames for unregistered members found in same server
+      // resolve usernames for unregistered members found in same server
       const needsName = inSameServer.filter(m => !m.robloxName);
       if (needsName.length) {
         try {
@@ -6380,9 +6382,9 @@ async function dispatchSlashInner(interaction) {
           }
         } catch {}
       }
-      // Fill any still missing names with the ID as fallback
+      // fill any still missing names with the ID as fallback
       for (const m of inSameServer) { if (!m.robloxName) m.robloxName = String(m.robloxId); }
-      // Post attendance embeds to the attendance channel all members (registered + unregistered)
+      // post attendance embeds to the attendance channel all members (registered + unregistered)
       const queueData = loadQueue();
       const queueChannelId = queueData[guild.id]?.channelId;
       const queueChannel = queueChannelId ? (guild.channels.cache.get(queueChannelId) ?? null) : null;
@@ -6621,8 +6623,68 @@ async function dispatchSlashInner(interaction) {
     } catch (err) { return interaction.editReply({ content: `conversion failed ${err.message}\n\nmake sure \`sharp\` is installed (\`npm install sharp\`)` }); }
   }
 
+  // /vanityset - bind a vanity tag and a role for status repping. whitelist only.
+  if (commandName === 'vanityset') {
+    if (!guild) return interaction.reply({ content: 'server only', ephemeral: true });
+    if (!isWlManager(interaction.user.id))
+      return interaction.reply({ content: 'only whitelist managers can use `/vanityset`', ephemeral: true });
+    const vanityRaw = interaction.options.getString('vanity') || '';
+    const role = interaction.options.getRole('role');
+    const vanityCode = vanityRaw.trim().replace(/^\/+/, '');
+    if (!vanityCode) return interaction.reply({ content: "vanity code can't be empty", ephemeral: true });
+    if (!role) return interaction.reply({ content: 'pick a role', ephemeral: true });
+    // make sure the bot can actually hand the role out (not managed, below the bot's top role)
+    const me = guild.members.me;
+    if (role.managed) return interaction.reply({ content: "that role is managed by an integration, i can't give it out", ephemeral: true });
+    if (me && role.position >= me.roles.highest.position) {
+      return interaction.reply({ content: `move my role above ${role} so i can give it out`, ephemeral: true });
+    }
+    const vData = loadVanity() || {};
+    vData[guild.id] = { vanityCode, picRoleId: role.id };
+    saveVanity(vData);
+    await interaction.reply({ content: `set anyone repping \`/${vanityCode}\` in their status will get ${role}. scanning current members...`, allowedMentions: { roles: [] } });
+
+    // sweep right now so anyone already repping gets the role without waiting for a presence change
+    const tag = `/${vanityCode}`;
+    let added = 0;
+    try {
+      // grab everyone with a presence in cache (presence intent is enabled)
+      await guild.members.fetch().catch(() => null);
+      for (const member of guild.members.cache.values()) {
+        if (member.user.bot) continue;
+        const presence = member.presence;
+        const repping = presence?.activities?.some(
+          a => a.type === 4 && typeof a.state === 'string' && a.state.includes(tag)
+        );
+        if (repping && !member.roles.cache.has(role.id)) {
+          try { await member.roles.add(role.id, `vanityset sweep`); added++; } catch {}
+        }
+      }
+    } catch {}
+    try { await interaction.followUp({ content: `gave the role to ${added} member${added === 1 ? '' : 's'} already repping \`${tag}\``, allowedMentions: { roles: [] } }); } catch {}
+    return;
+  }
+
+  // /cmd - run any prefix only command (lets you reach commands not bridged as slash)
+  if (commandName === 'cmd') {
+    const name = (interaction.options.getString('name') || '').trim().replace(/^\/+/, '').toLowerCase();
+    const argsStr = interaction.options.getString('args') || '';
+    if (!name) return interaction.reply({ content: 'give a command name', ephemeral: true });
+    try {
+      const prefix = getPrefix();
+      const fakeMsg = buildFakeMessageFromInteraction(interaction);
+      if (fakeMsg) {
+        fakeMsg.content = `${prefix}${name}${argsStr ? ' ' + argsStr : ''}`;
+        await dispatchPrefix(fakeMsg);
+      }
+    } catch (err) {
+      try { await interaction.reply({ content: `error: ${err.message}`, ephemeral: true }); } catch {}
+    }
+    return;
+  }
+
   // slash → prefix bridge: any chat input command not handled above falls
-  // through here. We re dispatch as a prefix command so every prefix only
+  // through here. we re dispatch as a prefix command so every prefix only
   // command also works as a slash command.
   if (interaction.isChatInputCommand && interaction.isChatInputCommand() && !interaction.replied && !interaction.deferred) {
     try {
@@ -6749,7 +6811,7 @@ async function dispatchPrefixInner(message) {
   const args    = message.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // Open to everyone prefix commands
+  // open to everyone prefix commands
   if (command === 'roblox') {
     const username = args[0];
     if (!username) return message.reply('provide a Roblox username');
@@ -6888,7 +6950,7 @@ async function dispatchPrefixInner(message) {
       .setThumbnail(sniped.avatarUrl)] });
   }
 
-  // VoiceMaster prefix commands
+  // voicemaster prefix commands
   if (command === 'drag') {
     if (!message.guild) return;
     const target = message.mentions.members?.first();
@@ -6970,7 +7032,7 @@ async function dispatchPrefixInner(message) {
     return message.reply({ embeds: [buildVmHelpEmbed(prefix)] });
   }
 
-  // Whitelist required prefix commands
+  // whitelist required prefix commands
   // unwhitelisted users only get `roblox` and `register`. for anything else
   // the bot just doesn't respond. no error, no embed it's like the command
   // was never typed. that way randoms can't even tell what commands exist.
@@ -7337,13 +7399,13 @@ async function dispatchPrefixInner(message) {
 
   if (command === 'dm') {
     if (!isWlManager(message.author.id)) return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('only whitelist managers can use `.dm`')] });
-    // .dm @user/userId/roleId <message
+    // .dm @user/userid/roleid <message
     const rawTarget = args[0];
     if (!rawTarget) return;
     const dmMsg = args.slice(1).join(' ');
     if (!dmMsg) return message.reply('include a message to send');
 
-    // Resolve target: user mention, role mention, or raw ID
+    // resolve target: user mention, role mention, or raw ID
     const userMention = message.mentions.users.first();
     const roleMention = message.mentions.roles?.first();
 
@@ -7366,7 +7428,7 @@ async function dispatchPrefixInner(message) {
       return status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`done sent: **${sent}**, failed: **${failed}**`)] });
     }
 
-    // Single user: @mention or raw ID
+    // single user: @mention or raw ID
     let targetUser = userMention;
     if (!targetUser) {
       const rawId = rawTarget.replace(/\D/g, '');
@@ -7518,9 +7580,9 @@ async function dispatchPrefixInner(message) {
     ].join('\n'))] });
   }
 
-  // .backup - zips up all the .json files and DMs them to you
+  // .backup - zips up all the .json files and dms them to you
   // only wl managers and temp owners can do this
-  // if your DMs are off it just posts the zip in the channel
+  // if your dms are off it just posts the zip in the channel
   if (command === 'backup') {
     if (!isWlManager(message.author.id) && !isTempOwner(message.author.id))
       return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('only whitelist managers and temp owners can use `.backup`')] });
@@ -8075,11 +8137,11 @@ async function dispatchPrefixInner(message) {
     }
     if (!targetMember) return;
 
-    // collect roles from @mentions AND any raw role IDs in args (skip the first arg if it was a user ID)
+    // collect roles from @mentions AND any raw role ids in args (skip the first arg if it was a user ID)
     const collectedRoles = new Map();
     // add all @mentioned roles
     for (const [id, role] of (message.mentions.roles ?? [])) collectedRoles.set(id, role);
-    // scan all args for numeric IDs that aren't the user's ID
+    // scan all args for numeric ids that aren't the user's ID
     const userArgId = targetMember.id;
     for (const arg of args) {
       if (!/^\d+$/.test(arg)) continue;
@@ -8215,8 +8277,8 @@ async function dispatchPrefixInner(message) {
   }
 
   // .joinserver <invite link> (WL managers + temp owners)
-  // bots can NOT auto-accept invites (Discord API restriction). this command instead
-  // validates the invite, fetches server info, and replies with a one-click OAuth2
+  // bots can NOT auto-accept invites (discord API restriction). this command instead
+  // validates the invite, fetches server info, and replies with a one-click oauth2
   // install link pre-targeted at that server (guild_id + disable_guild_select=true)
   // so the target server's owner just clicks once to add the bot.
   if (command === 'joinserver') {
@@ -8226,7 +8288,7 @@ async function dispatchPrefixInner(message) {
     const raw = args[0];
     if (!raw) return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('usage: `.joinserver <invite link or code>`')] });
 
-    // accept full URLs (discord.gg/x, discord.com/invite/x, discordapp.com/invite/x) or bare codes
+    // accept full urls (discord.gg/x, discord.com/invite/x, discordapp.com/invite/x) or bare codes
     const inviteCode = (raw.match(/(?:discord(?:app)?\.com\/invite\/|discord\.gg\/)([\w-]+)/i)?.[1] || raw).trim();
 
     let invite;
@@ -8249,7 +8311,7 @@ async function dispatchPrefixInner(message) {
     const clientId = client.user?.id || process.env.CLIENT_ID || '';
     if (!clientId) return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('bot client id not ready, try again in a few seconds')] });
 
-    // pre-target the OAuth dialog at the invite's server so the target server owner just clicks once
+    // pre-target the oauth dialog at the invite's server so the target server owner just clicks once
     const installUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot+applications.commands&guild_id=${targetGuildId}&disable_guild_select=true`;
 
     const embed = baseEmbed().setColor(0x2C2F33).setTitle('join server')
@@ -8329,7 +8391,7 @@ async function dispatchPrefixInner(message) {
   if (command === 'rankup') {
     if (!message.guild) return;
 
-    // optional "3x" anywhere in args to jump N ranks at once
+    // optional "3x" anywhere in args to jump n ranks at once
     // (so .rankup @user 3x works the same as .rankup 3x @user, ppl type both ways)
     let levels = 1;
     const argsCleaned = [];
@@ -8456,12 +8518,12 @@ async function dispatchPrefixInner(message) {
 
     const collectedIds = [];
     const seen = new Set();
-    // Parse role mentions in the exact order they appear in the message text
+    // parse role mentions in the exact order they appear in the message text
     for (const match of message.content.matchAll(/<@&(\d+)>/g)) {
       const id = match[1];
       if (!seen.has(id) && message.guild.roles.cache.has(id)) { collectedIds.push(id); seen.add(id); }
     }
-    // Also handle any bare numeric role IDs in args
+    // also handle any bare numeric role ids in args
     for (const arg of args) {
       if (!/^\d+$/.test(arg) || seen.has(arg)) continue;
       const r = message.guild.roles.cache.get(arg);
@@ -8566,8 +8628,8 @@ async function dispatchPrefixInner(message) {
   }
 
   // .import
-  // Usage: .import (attach a registered members.json or linked verified.json)
-  // Bulk imports registered users from a rfile/lvfile JSON export. WL managers only.
+  // usage: .import (attach a registered members.json or linked verified.json)
+  // bulk imports registered users from a rfile/lvfile JSON export. WL managers only.
   if (command === 'import') {
     if (!isWlManager(message.author.id)) return message.reply({ embeds: [errorEmbed('no permission').setDescription('only whitelist managers can use `.import`')] });
     const attachment = message.attachments.first();
@@ -8606,8 +8668,8 @@ async function dispatchPrefixInner(message) {
   }
 
   // .register
-  // Usage: .register RobloxUsername
-  // Self service: links the calling Discord user to a Roblox account.
+  // usage: .register robloxusername
+  // self service: links the calling discord user to a roblox account.
   if (command === 'register') {
     const robloxInput = args[0]?.trim();
     if (!robloxInput) return;
@@ -8656,8 +8718,8 @@ async function dispatchPrefixInner(message) {
   }
 
   // .pregister
-  // Usage: .pregister RobloxUsername @user (or userId)
-  // Registers another Discord user to a Roblox account. WL managers only.
+  // usage: .pregister robloxusername @user (or userid)
+  // registers another discord user to a roblox account. WL managers only.
   if (command === 'pregister') {
     if (!message.guild) return;
     if (!isWlManager(message.author.id)) return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('only whitelist managers can use `.pregister`')] });
@@ -8774,13 +8836,13 @@ async function dispatchPrefixInner(message) {
         .setDescription('no one has linked their Roblox account yet')] });
     }
 
-    // Build one line per user: Discord mention → Roblox username (linked profile)
+    // build one line per user: discord mention → roblox username (linked profile)
     const lines = [];
     for (const [discordId, { robloxName, robloxId }] of entries) {
       lines.push(`<@${discordId}> → [\`${robloxName}\`](https://www.roblox.com/users/${robloxId}/profile)`);
     }
 
-    // Split into pages of 20 so embeds don't hit the 4096 char description limit
+    // split into pages of 20 so embeds don't hit the 4096 char description limit
     const PAGE_SIZE = 20;
     const pages     = [];
     for (let i = 0; i < lines.length; i += PAGE_SIZE) {
@@ -8797,7 +8859,7 @@ async function dispatchPrefixInner(message) {
       return message.reply({ embeds: [buildPage(0)] });
     }
 
-    // Multi page with buttons
+    // multi page with buttons
     const buildRow = (idx) => new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`rlist ${idx - 1}`).setLabel('‹ Back').setStyle(ButtonStyle.Secondary).setDisabled(idx === 0),
       new ButtonBuilder().setCustomId(`rlist ${idx + 1}`).setLabel('Next ›').setStyle(ButtonStyle.Secondary).setDisabled(idx === totalPages - 1)
@@ -8831,7 +8893,7 @@ async function dispatchPrefixInner(message) {
         .setTimestamp(new Date(linked.verifiedAt))] });
     }
 
-    // Lookup by Roblox username
+    // lookup by roblox username
     const inputName = args[0];
     if (!inputName) return;
 
@@ -8862,8 +8924,8 @@ async function dispatchPrefixInner(message) {
   if (command === 'attend') {
     if (!message.guild) return;
 
-    // Usage: .attend @discordUser robloxUsername
-    // or: .attend discordId robloxUsername
+    // usage: .attend @discorduser robloxusername
+    // or: .attend discordid robloxusername
     // or: .attend @user1 roblox1 @user2 roblox2 ... (bulk)
     if (!args.length) return;
 
@@ -8873,8 +8935,8 @@ async function dispatchPrefixInner(message) {
       ? message.guild.channels.cache.get(queueChannelId) ?? message.channel
       : message.channel;
 
-    // Pair up args: could be interleaved mentions + roblox names
-    // Simple approach: pair each mention/id with the next non mention arg as roblox name
+    // pair up args: could be interleaved mentions + roblox names
+    // simple approach: pair each mention/id with the next non mention arg as roblox name
     await fetchMembersCached(message.guild);
 
     const pairs = [];
@@ -8882,7 +8944,7 @@ async function dispatchPrefixInner(message) {
     let i = 0;
     while (i < tokens.length) {
       const token = tokens[i];
-      // Try to resolve as Discord user
+      // try to resolve as discord user
       let member = null;
       const mentionMatch = token.match(/^<@!?(\d+)>$/);
       if (mentionMatch) {
@@ -8909,7 +8971,7 @@ async function dispatchPrefixInner(message) {
       }
     }
 
-    // If no pairs found from mentions, try simple mode: first arg = user, second = roblox
+    // if no pairs found from mentions, try simple mode: first arg = user, second = roblox
     if (!pairs.length) {
       const userToken = args[0];
       const robloxName = args.slice(1).join(' ') || 'unknown';
@@ -8970,7 +9032,7 @@ async function dispatchPrefixInner(message) {
     return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Raid Voice Channel Set').setDescription(`attendance will now be auto logged when verified group members join ${vc}\n\nThe logged list resets whenever you set a new channel.`).setTimestamp()] });
   }
 
-  // .setrollcallchannel — sets where the big summary embed (everyone in the rollcall) gets posted
+  // .setrollcallchannel - sets where the big summary embed (everyone in the rollcall) gets posted
   // when u run .endrollcall. usage: .setrollcallchannel #channel
   if (command === 'setrollcallchannel') {
     if (!message.guild) return;
@@ -8985,9 +9047,9 @@ async function dispatchPrefixInner(message) {
     return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Rollcall Channel Set').setDescription(`when u run \`${prefix}endrollcall\` the full list of who reacted (with clickable Discord + Roblox names) will get posted in ${ch}`).setTimestamp()] });
   }
 
-  // .lb — raid leaderboard. shows who has been in the most rollcalls/raids
+  // .lb - raid leaderboard. shows who has been in the most rollcalls/raids
   // (uses the same raid stats that .endrollcall already updates so the count = how many rollcalls they were in)
-  // paginated 10 per page with transparent < / > buttons (Secondary style).
+  // paginated 10 per page with transparent < / > buttons (secondary style).
   if (command === 'lb') {
     if (!message.guild) return;
     const stats = loadRaidStats()[message.guild.id] || {};
@@ -9027,8 +9089,8 @@ async function dispatchPrefixInner(message) {
         .setFooter({ text: `page ${page + 1}/${totalPages} • ${rows.length} member${rows.length !== 1 ? 's' : ''} • counted from rollcall logs • ${getBotName()}`, iconURL: getLogoUrl() })
         .setTimestamp();
     };
-    // < / > buttons. Secondary style is the transparent/grey one in discord
-    // customId encodes the requesting user so randoms can't flip pages on someone else's leaderboard
+    // < / > buttons. secondary style is the transparent/grey one in discord
+    // customid encodes the requesting user so randoms can't flip pages on someone else's leaderboard
     const buildRow = (page) => new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`lb ${page - 1} ${message.author.id}`).setLabel('<').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
       new ButtonBuilder().setCustomId(`lb ${page + 1} ${message.author.id}`).setLabel('>').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1)
@@ -9038,8 +9100,8 @@ async function dispatchPrefixInner(message) {
     return message.reply({ embeds: [initialEmbed], components });
   }
 
-  // .lbreset — wipe the raid leaderboard for this server.
-  // wl managers + temp owners can run it (anyone isWlManager() returns true for).
+  // .lbreset - wipe the raid leaderboard for this server.
+  // wl managers + temp owners can run it (anyone iswlmanager() returns true for).
   if (command === 'lbreset') {
     if (!message.guild) return;
     if (!isWlManager(message.author.id))
@@ -9094,11 +9156,11 @@ async function dispatchPrefixInner(message) {
       const vData = loadVerify();
       const queueChannelId = qData[message.guild.id]?.channelId;
       const queueChannel = queueChannelId ? message.guild.channels.cache.get(queueChannelId) : null;
-      // the new rollcall summary channel — set with .setrollcallchannel
+      // the new rollcall summary channel - set with .setrollcallchannel
       const rollCallChannelId = qData[message.guild.id]?.rollCallChannelId;
       const rollCallChannel = rollCallChannelId ? message.guild.channels.cache.get(rollCallChannelId) : null;
       let logged = 0; const skipped = []; const loggedEntries = [];
-      // for the summary embed — keep both names so we can build clickable links
+      // for the summary embed - keep both names so we can build clickable links
       const summaryRows = [];
       for (const user of reactors) {
         const userVerify = vData.verified?.[user.id];
@@ -9120,7 +9182,7 @@ async function dispatchPrefixInner(message) {
         logged++;
         await new Promise(r => setTimeout(r, 300));
       }
-      // post the big summary embed in the rollcall channel — every1 in the rollcall, with clickable names
+      // post the big summary embed in the rollcall channel - every1 in the rollcall, with clickable names
       if (rollCallChannel && summaryRows.length) {
         const lines = summaryRows.map((r, i) =>
           `**${i + 1}.** [${r.discordName}](https://discord.com/users/${r.discordId}) — Roblox: [${r.robloxName}](https://www.roblox.com/users/${r.robloxId}/profile)`
@@ -9145,7 +9207,7 @@ async function dispatchPrefixInner(message) {
   }
 
   // .atlog
-  // Show recent rollcall attendance logs. Usage:
+  // show recent rollcall attendance logs. usage:
   // .atlog → list the last 10 sessions
   // .atlog <n → show full details of session #n from the list
   // .atlog clear → wipe all logs for this guild (wl manager only)
@@ -9155,7 +9217,7 @@ async function dispatchPrefixInner(message) {
       return message.reply('you need to be whitelisted to use this');
     const all = loadAtLog();
     const sessions = all[message.guild.id] || [];
-    // helper: render a discord id as "<@id (`robloxName`)" if they're registered via .register
+    // helper: render a discord id as "<@id (`robloxname`)" if they're registered via .register
     const _vForLog = loadVerify();
     const renderUser = (id) => {
       const r = _vForLog?.verified?.[id]?.robloxName;
@@ -9171,10 +9233,10 @@ async function dispatchPrefixInner(message) {
 
     if (!sessions.length) return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Attendance Log').setDescription('no rollcall sessions logged yet run `.endrollcall` to record one')] });
 
-    // Newest first
+    // newest first
     const recent = [...sessions].reverse();
 
-    // Detail view
+    // detail view
     if (args[0] && /^\d+$/.test(args[0])) {
       const idx = parseInt(args[0], 10) - 1;
       const s = recent[idx];
@@ -9189,7 +9251,7 @@ async function dispatchPrefixInner(message) {
       return message.reply({ embeds: [embed] });
     }
 
-    // List view (last 10)
+    // list view (last 10)
     const top = recent.slice(0, 10);
     const listLines = top.map((s, i) => `**${i + 1}.** <t:${Math.floor(s.ts / 1000)}:R **${s.logged.length}** logged${s.skipped?.length ? `, ${s.skipped.length} skipped` : ''} • by ${renderUser(s.by)}`);
     const embed = baseEmbed().setColor(0x2C2F33)
@@ -9200,8 +9262,8 @@ async function dispatchPrefixInner(message) {
   }
 
   // .whoisin
-  // Usage: .whoisin <roblox game URL or place ID
-  // Checks which members of group 206868002 are currently in that game.
+  // usage: .whoisin <roblox game URL or place ID
+  // checks which members of group 206868002 are currently in that game.
   if (command === 'whoisin') {
     if (!message.guild) return;
     const input = args[0];
@@ -9209,8 +9271,8 @@ async function dispatchPrefixInner(message) {
     const WHOISIN_GROUP = 206868002;
     const status = await message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('fetching group members and game servers...')] });
     try {
-      // Parse place ID supports:
-      // roblox.com/games/start?placeId=123&gameInstanceId=...
+      // parse place ID supports:
+      // roblox.com/games/start?placeid=123&gameinstanceid=...
       // roblox.com/games/123/game name
       // raw numeric place ID
       let placeId = null;
@@ -9221,16 +9283,16 @@ async function dispatchPrefixInner(message) {
       else if (/^\d+$/.test(input)) placeId = input;
       if (!placeId) return status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription("couldn't parse a place ID paste a Roblox game URL or server link, e.g. `roblox.com/games/start?placeId=123&gameInstanceId=...`")] });
 
-      // Resolve place ID → universe ID
+      // resolve place ID → universe ID
       const placeDetail = await (await fetch(`https://games.roblox.com/v1/games/multiget-place-details?placeIds=${placeId}`)).json();
       const universeId = placeDetail?.data?.[0]?.universeId;
       if (!universeId) return status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`couldn't find a game for place ID \`${placeId}\` make sure the game exists and is public`)] });
 
-      // Get game name
+      // get game name
       let gameName = `Place ${placeId}`;
       try { const gr = await (await fetch(`https://games.roblox.com/v1/games?universeIds=${universeId}`)).json(); if (gr?.data?.[0]?.name) gameName = gr.data[0].name; } catch {}
 
-      // Load ALL group members (paginated)
+      // load ALL group members (paginated)
       await status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('loading group members...')] });
       const memberIds = new Set();
       const memberNames = {};
@@ -9244,7 +9306,7 @@ async function dispatchPrefixInner(message) {
       } while (cur);
       if (!memberIds.size) return status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('could not load group members Roblox API may be unavailable')] });
 
-      // Scan all public game servers, collect player tokens
+      // scan all public game servers, collect player tokens
       await status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`loaded **${memberIds.size}** group members, scanning servers...`)] });
       const allTokens = [];
       let sCur = ''; let serverCount = 0;
@@ -9258,7 +9320,7 @@ async function dispatchPrefixInner(message) {
 
       if (!allTokens.length) return status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`scanned **${serverCount}** server${serverCount !== 1 ? 's' : ''} no players found (game may be empty or servers private)`)] });
 
-      // Resolve player tokens → Roblox user IDs via thumbnail batch API
+      // resolve player tokens → roblox user ids via thumbnail batch API
       await status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`resolving **${allTokens.length}** player${allTokens.length !== 1 ? 's' : ''} across **${serverCount}** server${serverCount !== 1 ? 's' : ''}...`)] });
       const resolvedIds = new Set();
       for (let i = 0; i < allTokens.length; i += 100) {
@@ -9269,7 +9331,7 @@ async function dispatchPrefixInner(message) {
         } catch {}
       }
 
-      // Cross reference: keep only players who are group members
+      // cross reference: keep only players who are group members
       const inGame = [...resolvedIds].filter(id => memberIds.has(id));
       if (!inGame.length) return status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`no group members found in **${gameName}**\n*(checked ${serverCount} server${serverCount !== 1 ? 's' : ''}, ${resolvedIds.size} total player${resolvedIds.size !== 1 ? 's' : ''})*`)] });
 
@@ -9321,10 +9383,10 @@ async function dispatchPrefixInner(message) {
       const vData = loadVerify();
       const allRegistered = Object.entries(vData.verified || {});
       await status.edit({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`**${targetUser.name}** is in **${gameName}** fetching group members & checking presence...`)] });
-      // Fetch all group members (registered + unregistered)
+      // fetch all group members (registered + unregistered)
       const groupMembers = await fetchGroupMemberIds(ATTEND_GROUP_ID);
       const allGroupIds = [...groupMembers];
-      // Build quick lookup maps from registered data
+      // build quick lookup maps from registered data
       const registeredRobloxToDiscord = vData.robloxToDiscord || {};
       const registeredRobloxToName = {};
       for (const [, v] of allRegistered) {
@@ -9352,7 +9414,7 @@ async function dispatchPrefixInner(message) {
         } catch {}
         await new Promise(r => setTimeout(r, 200));
       }
-      // Resolve usernames for unregistered members found in same server
+      // resolve usernames for unregistered members found in same server
       const needsName = inSameServer.filter(m => !m.robloxName);
       if (needsName.length) {
         try {
@@ -9366,9 +9428,9 @@ async function dispatchPrefixInner(message) {
           }
         } catch {}
       }
-      // Fill any still missing names with the ID as fallback
+      // fill any still missing names with the ID as fallback
       for (const m of inSameServer) { if (!m.robloxName) m.robloxName = String(m.robloxId); }
-      // Post attendance embeds to the queue channel all members (registered + unregistered)
+      // post attendance embeds to the queue channel all members (registered + unregistered)
       const queueData = loadQueue();
       const queueChannelId = queueData[message.guild.id]?.channelId;
       const queueChannel = queueChannelId ? (message.guild.channels.cache.get(queueChannelId) ?? null) : null;
@@ -9476,7 +9538,7 @@ async function dispatchPrefixInner(message) {
   }
 
   // prefix → slash bridge: any prefix command not handled above falls
-  // through here. We re dispatch as a slash command so every slash only
+  // through here. we re dispatch as a slash command so every slash only
   // command also works as a prefix command.
   try {
     if (SLASH_ONLY_COMMANDS.has(command) || command === 'whitelist') {
@@ -9490,15 +9552,15 @@ async function dispatchPrefixInner(message) {
 client.on('messageCreate', dispatchPrefix);
 
 
-// Automatic raid attendance HTTP server
-// Roblox game scripts POST to this endpoint when a player joins the raid.
-// Body (JSON): { discordId, robloxUsername, guildId, secret }
+// automatic raid attendance HTTP server
+// roblox game scripts POST to this endpoint when a player joins the raid.
+// body (JSON): { discordid, robloxusername, guildid, secret }
 // secret must match process.env.ATTEND SECRET (optional but recommended)
 const ATTEND_PORT   = process.env.ATTEND_PORT   || 3001;
 const ATTEND_SECRET = process.env.ATTEND_SECRET || '';
 
 http.createServer(async (req, res) => {
-  // Health check
+  // health check
   if (req.method === 'GET' && req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('attend server ok');
@@ -9515,7 +9577,7 @@ http.createServer(async (req, res) => {
     try {
       const data = JSON.parse(body);
 
-      // Optional secret check
+      // optional secret check
       if (ATTEND_SECRET && data.secret !== ATTEND_SECRET) {
         res.writeHead(401); res.end('unauthorized'); return;
       }
@@ -9528,7 +9590,7 @@ http.createServer(async (req, res) => {
       const guild = client.guilds.cache.get(String(guildId));
       if (!guild) { res.writeHead(404); res.end('guild not found'); return; }
 
-      // Only log registered (mverify'd) members
+      // only log registered (mverify'd) members
       const vData = loadVerify();
       const registeredEntry = Object.entries(vData.verified || {}).find(([, v]) => v.robloxName?.toLowerCase() === robloxUsername?.toLowerCase());
       if (!registeredEntry) {
@@ -9547,7 +9609,7 @@ http.createServer(async (req, res) => {
 
       const discordDisplay = `<@${regDiscordId}> `;
 
-      // Fetch Roblox avatar for thumbnail
+      // fetch roblox avatar for thumbnail
       let httpAvatarUrl = null;
       try {
         const robloxRes = await (await fetch('https://users.roblox.com/v1/usernames/users', {
@@ -9585,18 +9647,18 @@ http.createServer(async (req, res) => {
   console.log(`attend server listening on port ${ATTEND_PORT}`);
 });
 
-// Survive transient errors so the bot doesn't crash mid write and lose data.
+// survive transient errors so the bot doesn't crash mid write and lose data.
 process.on('uncaughtException', (err) => { console.error('uncaughtException:', err); });
 process.on('unhandledRejection', (reason) => { console.error('unhandledRejection:', reason); });
 
-// Graceful shutdown: try to log out cleanly so any in flight writes finish.
+// graceful shutdown: try to log out cleanly so any in flight writes finish.
 let shuttingDown = false;
 async function gracefulShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`received ${signal}, shutting down...`);
   try { await client.destroy(); } catch {}
-  // Close the Postgres pool so pending queries can drain
+  // close the postgres pool so pending queries can drain
   if (dbPool) { try { await dbPool.end(); } catch {} }
   process.exit(0);
 }
