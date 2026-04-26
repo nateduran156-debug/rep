@@ -4230,36 +4230,41 @@ async function dispatchSlashInner(interaction) {
     return;
   }
 
-  // autocomplete: registered roblox group roles for /role, sorted by rank ascending
+  // autocomplete: list every role in the configured roblox group sorted by
+  // rank ascending, shown as "role name | Rank N", value = the roblox role id
   if (interaction.isAutocomplete && interaction.isAutocomplete()) {
     try {
       if (interaction.commandName === 'role') {
         const focused = interaction.options.getFocused(true);
         if (focused?.name === 'role') {
-          const roles = loadRobloxRoles();
-          const entries = Object.entries(roles || {});
-          let rankById = new Map();
+          let groupRoles = [];
           try {
             const groupId = getGroupId();
             const data = await (await fetch(`https://groups.roblox.com/v1/groups/${groupId}/roles`)).json();
-            for (const r of (data.roles || [])) rankById.set(String(r.id), r.rank);
+            groupRoles = (data.roles || []).map(r => ({ id: String(r.id), name: r.name, rank: r.rank }));
           } catch {}
-          const items = entries.map(([key, val]) => {
-            const id = String(val?.id ?? '');
-            const name = val?.name || key;
-            const rank = rankById.has(id) ? rankById.get(id) : (typeof val?.rank === 'number' ? val.rank : null);
-            return { name, key, rank };
-          }).sort((a, b) => {
+          // fall back to any registered roles if the group api failed
+          if (!groupRoles.length) {
+            const reg = loadRobloxRoles();
+            groupRoles = Object.entries(reg || {}).map(([key, val]) => ({
+              id: String(val?.id ?? ''),
+              name: val?.name || key,
+              rank: typeof val?.rank === 'number' ? val.rank : null
+            }));
+          }
+          groupRoles.sort((a, b) => {
             const ar = a.rank == null ? Number.POSITIVE_INFINITY : a.rank;
             const br = b.rank == null ? Number.POSITIVE_INFINITY : b.rank;
             if (ar !== br) return ar - br;
             return a.name.localeCompare(b.name);
           });
           const q = (focused.value || '').toLowerCase();
-          const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q) || (it.key || '').toLowerCase().includes(q)) : items;
-          const choices = filtered.slice(0, 25).map(it => ({
-            name: `${it.name} | rank ${it.rank == null ? '?' : it.rank}`.slice(0, 100),
-            value: (it.key || it.name).slice(0, 100)
+          const filtered = q
+            ? groupRoles.filter(r => r.name.toLowerCase().includes(q) || String(r.rank ?? '').includes(q))
+            : groupRoles;
+          const choices = filtered.slice(0, 25).map(r => ({
+            name: `${r.name} | Rank ${r.rank == null ? '?' : r.rank}`.slice(0, 100),
+            value: (r.id || r.name).slice(0, 100)
           }));
           await interaction.respond(choices);
           return;
@@ -5571,13 +5576,25 @@ async function dispatchSlashInner(interaction) {
       return interaction.reply({ embeds: [errorEmbed('no permission').setDescription('you don\'t have permission to use `/role`. ask a wl manager to allow your role with `/setroleperms add`.')], ephemeral: true });
 
     const robloxUsername = interaction.options.getString('roblox');
-    const roleName = interaction.options.getString('role');
+    const roleInput = interaction.options.getString('role');
     const roles = loadRobloxRoles();
-    const lookup = roles[roleName] || roles[roleName.toLowerCase()];
+    let lookup = roles[roleInput] || roles[roleInput.toLowerCase()];
+    // if the user picked an autocomplete suggestion, the value is the numeric
+    // roblox role id - resolve it against the live group roles for display
+    if (!lookup && /^\d+$/.test(roleInput)) {
+      try {
+        const groupId = getGroupId();
+        const data = await (await fetch(`https://groups.roblox.com/v1/groups/${groupId}/roles`)).json();
+        const match = (data.roles || []).find(r => String(r.id) === roleInput);
+        if (match) lookup = { id: String(match.id), name: match.name, rank: match.rank };
+      } catch {}
+      if (!lookup) lookup = { id: roleInput, name: roleInput };
+    }
     if (!lookup) {
       const listEmbed = await buildRegisteredRolesEmbed();
-      return interaction.reply({ embeds: [errorEmbed('unknown role').setDescription(`no roblox group role named **${roleName}** is registered.`), listEmbed], ephemeral: true });
+      return interaction.reply({ embeds: [errorEmbed('unknown role').setDescription(`no roblox group role named **${roleInput}** is registered.`), listEmbed], ephemeral: true });
     }
+    const roleName = lookup.name || roleInput;
 
     await interaction.deferReply();
     try {
