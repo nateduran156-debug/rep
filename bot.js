@@ -454,6 +454,39 @@ const loadTempOwners = () => { const d = loadJSON(TEMPOWNERS_FILE); return Array
 const saveTempOwners = ids => saveJSON(TEMPOWNERS_FILE, { ids })
 const loadRobloxRoles = () => loadJSON(ROBLOX_ROLES_FILE)
 const saveRobloxRoles = r => saveJSON(ROBLOX_ROLES_FILE, r)
+
+// build an embed listing every registered roblox group role in
+// "name | rank N" format, sorted by rank ascending. ranks come from the
+// live group api (so even roles registered before rank tracking get
+// sorted correctly), with the per-role stored .rank as a fallback.
+async function buildRegisteredRolesEmbed() {
+  const roles = loadRobloxRoles()
+  const entries = Object.entries(roles || {})
+  if (!entries.length) {
+    return baseEmbed().setColor(0x2C2F33).setTitle('Roles')
+      .setDescription('no roblox group roles registered yet use `/setrole` to add some')
+  }
+  let rankById = new Map()
+  try {
+    const groupId = getGroupId()
+    const data = await (await fetch(`https://groups.roblox.com/v1/groups/${groupId}/roles`)).json()
+    for (const r of (data.roles || [])) rankById.set(String(r.id), r.rank)
+  } catch {}
+  const items = entries.map(([key, val]) => {
+    const id = String(val?.id ?? '')
+    const name = val?.name || key
+    let rank = rankById.has(id) ? rankById.get(id) : (typeof val?.rank === 'number' ? val.rank : null)
+    return { name, rank, id }
+  }).sort((a, b) => {
+    const ar = a.rank == null ? Number.POSITIVE_INFINITY : a.rank
+    const br = b.rank == null ? Number.POSITIVE_INFINITY : b.rank
+    if (ar !== br) return ar - br
+    return a.name.localeCompare(b.name)
+  })
+  const lines = items.map(it => `${it.name} | rank ${it.rank == null ? '?' : it.rank}`)
+  return baseEmbed().setColor(0x2C2F33).setTitle('Roles')
+    .setDescription(lines.join('\n').slice(0, 4000))
+}
 const loadRolePerms = () => { const d = loadJSON(ROLE_PERMS_FILE); return Array.isArray(d.roles) ? d.roles : [] }
 const saveRolePerms = roles => saveJSON(ROLE_PERMS_FILE, { roles })
 const loadTickets = () => loadJSON(TICKETS_FILE)
@@ -5499,7 +5532,10 @@ async function dispatchSlashInner(interaction) {
     const roleName = interaction.options.getString('role');
     const roles = loadRobloxRoles();
     const lookup = roles[roleName] || roles[roleName.toLowerCase()];
-    if (!lookup) return interaction.reply({ embeds: [errorEmbed('unknown role').setDescription(`no roblox group role named **${roleName}** is registered. use \`/setrole\` first.`)], ephemeral: true });
+    if (!lookup) {
+      const listEmbed = await buildRegisteredRolesEmbed();
+      return interaction.reply({ embeds: [errorEmbed('unknown role').setDescription(`no roblox group role named **${roleName}** is registered.`), listEmbed], ephemeral: true });
+    }
 
     await interaction.deferReply();
     try {
