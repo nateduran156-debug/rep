@@ -4263,7 +4263,7 @@ async function dispatchSlashInner(interaction) {
             ? groupRoles.filter(r => r.name.toLowerCase().includes(q) || String(r.rank ?? '').includes(q))
             : groupRoles;
           const choices = filtered.slice(0, 25).map(r => ({
-            name: `${r.name} | Rank ${r.rank == null ? '?' : r.rank}`.slice(0, 100),
+            name: `${r.name} | rank ${r.rank == null ? '?' : r.rank}`.slice(0, 100),
             value: (r.id || r.name).slice(0, 100)
           }));
           await interaction.respond(choices);
