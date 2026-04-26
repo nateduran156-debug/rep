@@ -1331,7 +1331,7 @@ async function rankRobloxUser(robloxUsername, roleId) {
   const csrfRes   = await fetch('https://auth.roblox.com/v2/logout', {
     method: 'POST', headers: { Cookie: `.ROBLOSECURITY=${cookie}` }
   });
-  const csrfToken = csrfRes.headers.get('x csrf token');
+  const csrfToken = csrfRes.headers.get('x-csrf-token');
   if (!csrfToken) throw new Error('Could not get CSRF token. Check your ROBLOX COOKIE.');
 
   const rankRes = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/users/${userId}`, {
@@ -1359,9 +1359,9 @@ async function acceptRobloxJoinRequest(robloxUserId, groupId) {
   const csrfRes = await fetch('https://auth.roblox.com/v2/logout', {
     method: 'POST', headers: { Cookie: `.ROBLOSECURITY=${cookie}` }
   });
-  const csrfToken = csrfRes.headers.get('x csrf token');
+  const csrfToken = csrfRes.headers.get('x-csrf-token');
   if (!csrfToken) throw new Error('could not get CSRF token check ROBLOX COOKIE');
-  const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/join requests/users/${robloxUserId}`, {
+  const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/join-requests/users/${robloxUserId}`, {
     method: 'POST',
     headers: { Cookie: `.ROBLOSECURITY=${cookie}`, 'X-CSRF-TOKEN': csrfToken }
   });
@@ -4981,7 +4981,7 @@ async function dispatchSlashInner(interaction) {
         const cookie = process.env.ROBLOX_COOKIE;
         if (!cookie || !groupId) return interaction.editReply('ROBLOX COOKIE or ROBLOX GROUP ID not configured');
         const csrfRes = await fetch('https://auth.roblox.com/v2/logout', { method: 'POST', headers: { Cookie: `.ROBLOSECURITY=${cookie}` } });
-        const csrfToken = csrfRes.headers.get('x csrf token');
+        const csrfToken = csrfRes.headers.get('x-csrf-token');
         const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/users/${userBasic.id}`, {
           method: 'DELETE', headers: { Cookie: `.ROBLOSECURITY=${cookie}`, 'X-CSRF-TOKEN': csrfToken }
         });
@@ -7415,7 +7415,7 @@ async function dispatchPrefixInner(message) {
         const cookie = process.env.ROBLOX_COOKIE;
         if (!cookie || !groupId) return message.reply('ROBLOX COOKIE or ROBLOX GROUP ID not configured');
         const csrfRes = await fetch('https://auth.roblox.com/v2/logout', { method: 'POST', headers: { Cookie: `.ROBLOSECURITY=${cookie}` } });
-        const csrfToken = csrfRes.headers.get('x csrf token');
+        const csrfToken = csrfRes.headers.get('x-csrf-token');
         const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}/users/${userBasic.id}`, {
           method: 'DELETE', headers: { Cookie: `.ROBLOSECURITY=${cookie}`, 'X-CSRF-TOKEN': csrfToken }
         });
