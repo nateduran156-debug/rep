@@ -1999,7 +1999,7 @@ const slashCommands = [
   new SlashCommandBuilder().setName('role').setDescription('Set a Roblox group role')
     .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
     .addStringOption(o => o.setName('roblox').setDescription('roblox username').setRequired(true))
-    .addStringOption(o => o.setName('role').setDescription('target group role').setRequired(true)),
+    .addStringOption(o => o.setName('role').setDescription('target group role').setRequired(true).setAutocomplete(true)),
 
   new SlashCommandBuilder().setName('setrole').setDescription('register a roblox group role by name and id')
     .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
@@ -4226,6 +4226,48 @@ async function dispatchSlashInner(interaction) {
         try { await vc.delete(); delete vmChannels[vc.id]; saveVmChannels(vmChannels); } catch (e) { return interaction.reply({ content: `couldn't delete ${e.message}`, ephemeral: true }); }
         return;
       }
+    }
+    return;
+  }
+
+  // autocomplete: registered roblox group roles for /role, sorted by rank ascending
+  if (interaction.isAutocomplete && interaction.isAutocomplete()) {
+    try {
+      if (interaction.commandName === 'role') {
+        const focused = interaction.options.getFocused(true);
+        if (focused?.name === 'role') {
+          const roles = loadRobloxRoles();
+          const entries = Object.entries(roles || {});
+          let rankById = new Map();
+          try {
+            const groupId = getGroupId();
+            const data = await (await fetch(`https://groups.roblox.com/v1/groups/${groupId}/roles`)).json();
+            for (const r of (data.roles || [])) rankById.set(String(r.id), r.rank);
+          } catch {}
+          const items = entries.map(([key, val]) => {
+            const id = String(val?.id ?? '');
+            const name = val?.name || key;
+            const rank = rankById.has(id) ? rankById.get(id) : (typeof val?.rank === 'number' ? val.rank : null);
+            return { name, key, rank };
+          }).sort((a, b) => {
+            const ar = a.rank == null ? Number.POSITIVE_INFINITY : a.rank;
+            const br = b.rank == null ? Number.POSITIVE_INFINITY : b.rank;
+            if (ar !== br) return ar - br;
+            return a.name.localeCompare(b.name);
+          });
+          const q = (focused.value || '').toLowerCase();
+          const filtered = q ? items.filter(it => it.name.toLowerCase().includes(q) || (it.key || '').toLowerCase().includes(q)) : items;
+          const choices = filtered.slice(0, 25).map(it => ({
+            name: `${it.name} | rank ${it.rank == null ? '?' : it.rank}`.slice(0, 100),
+            value: (it.key || it.name).slice(0, 100)
+          }));
+          await interaction.respond(choices);
+          return;
+        }
+      }
+      try { await interaction.respond([]); } catch {}
+    } catch {
+      try { await interaction.respond([]); } catch {}
     }
     return;
   }
