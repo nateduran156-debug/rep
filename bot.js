@@ -2065,7 +2065,7 @@ const slashCommands = [
     .addStringOption(o => o.setName('action').setDescription('reset to default').setRequired(false)
       .addChoices({ name: 'reset', value: 'reset' })),
 
-  // Bridged: prefix only commands exposed as slash with a single `args` string
+  // bridged: prefix only commands exposed as slash with a single `args` string
   ...[
     'snipe', 'editsnipe', 'reactsnipe', 'afk', 'drag', 'cleanup', 'activitycheck',
     'cs', 'group', 'flag', 'unflag', 'flagged', 'roleinfo', 'config', 'id', 'rfile', 'lvfile',
@@ -2073,20 +2073,24 @@ const slashCommands = [
     'attend', 'setraidvc', 'rollcall', 'endrollcall', 'whoisin', 'ingame',
     // pick the channel where the rollcall summary gets dropped + the raid leaderboard
     'setrollcallchannel', 'lb',
-    // wipes the raid leaderboard, plus aliases & extra prefix only commands so EVERY
-    // prefix command is also reachable via slash. the slash → prefix bridge handles dispatch.
+    // wipes the raid leaderboard plus aliases & extra prefix only commands so every
+    // prefix command is also reachable via slash. the slash to prefix bridge handles dispatch
     'lbreset', 'atlog', 'whois', 'warns', 'c', 'rs', 'es',
-    // antinuke is exposed as `/antinuke <args>` and routes through the prefix handler
+    // antinuke as /antinuke args:"enable" etc. routes through the prefix handler
     'antinuke',
-    // backup zips every JSON state file and DMs it (wl managers + temp owners)
+    // backup zips every json state file and DMs it (wl managers + temp owners)
     'backup',
-    // restore accepts an attached backup zip and writes the JSON files back
-    'restore'
   ].map(name =>
     new SlashCommandBuilder().setName(name).setDescription(`${name} command (use args for arguments)`)
       .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
       .addStringOption(o => o.setName('args').setDescription('arguments (same as the prefix command)').setRequired(false))
   ),
+  // /restore needs a real attachment option so users can drag the zip in.
+  // the slash-to-prefix bridge picks the attachment up via interaction.options.data
+  // and exposes it as message.attachments for the existing prefix handler
+  new SlashCommandBuilder().setName('restore').setDescription('restore json state files from a .backup zip')
+    .setIntegrationTypes(ALL_INSTALLS).setContexts(ALL_CONTEXTS)
+    .addAttachmentOption(o => o.setName('zip').setDescription('a .zip produced by /backup').setRequired(true)),
 ].map(c => c.toJSON());
 
 // Status helper
@@ -2257,7 +2261,7 @@ function _crc32(buf) {
   for (let i = 0; i < buf.length; i++) c = _CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8)
   return (c ^ 0xFFFFFFFF) >>> 0
 }
-// entries: [{ name: string, data: Buffer }]
+// builds a zip from a list like [{ name, data }]. used by .backup
 function buildZipBuffer(entries) {
   const local = []
   const central = []
@@ -2298,12 +2302,10 @@ function buildZipBuffer(entries) {
   return Buffer.concat([...local, centralBuf, eocd])
 }
 
-// inverse of buildZipBuffer: parse a PKZIP buffer back into [{name, data}] entries.
-// supports stored (method=0) and deflate (method=8). uses the central directory
-// (which is what `unzip` and every other tool reads), so it's tolerant of the
-// extra metadata fields produced by archiver/jszip/zip etc.
+// opposite of buildZipBuffer. takes a zip buffer and gives back the files.
+// handles normal zips (stored or deflated), since thats what backup makes.
 function parseZipBuffer(buf) {
-  // walk back from the end of the file looking for the EOCD signature
+  // find the end-of-zip marker by scanning backwards
   let eocd = -1
   for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
     if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break }
@@ -2325,7 +2327,7 @@ function parseZipBuffer(buf) {
     const name       = buf.slice(p + 46, p + 46 + nameLen).toString('utf8')
     p += 46 + nameLen + extraLen + commentLen
 
-    // jump to the local file header to find where the data actually starts
+    // jump to the file header so we know where the file bytes start
     if (buf.readUInt32LE(localOff) !== 0x04034b50) throw new Error(`bad local header for ${name}`)
     const lNameLen  = buf.readUInt16LE(localOff + 26)
     const lExtraLen = buf.readUInt16LE(localOff + 28)
@@ -2341,18 +2343,14 @@ function parseZipBuffer(buf) {
   return entries
 }
 
-// ─── ANTINUKE ENGINE ──────────────────────────────────────────────────────
-// per-guild config persisted in antinuke.json. structure:
-//   { [guildId]: { enabled, logChannelId, whitelist:[ids], punishment, thresholds:{...} } }
-// thresholds map an action key -> { count, window } (window in ms). triggering
-// `count` events from the same actor within `window` ms = nuke detected.
-//
-// SAFETY:
-// - antinuke is OFF by default. you must `.antinuke enable` per guild.
-// - the hardcoded permission roster + the guild owner ALWAYS bypass.
-// - the bot itself is never punished.
-// - default punishment is 'strip' (remove all roles) so a false positive
-//   doesn't ban the wrong person.
+// antinuke stuff
+// each server has its own settings saved in antinuke.json
+// the idea: if someone does too many bad things too fast, punish them
+// its OFF by default so you have to turn it on with .antinuke enable
+// the hardcoded perm people + the server owner cant get punished
+// also the bot itself obviously
+// default punishment is 'strip' (just take their roles) so if it messes up
+// at least nobody gets banned by accident
 const ANTINUKE_FILE = path.join(__dirname, 'antinuke.json');
 const DEFAULT_ANTINUKE_THRESHOLDS = {
   channelDelete:   { count: 3, window: 10000 },
@@ -2371,7 +2369,7 @@ function saveAntinuke(data)  { saveJSON(ANTINUKE_FILE, data); }
 function getAntinukeCfg(guildId) {
   const all = loadAntinuke();
   if (!all[guildId]) all[guildId] = { enabled: false, logChannelId: null, whitelist: [], punishment: 'strip', thresholds: { ...DEFAULT_ANTINUKE_THRESHOLDS } };
-  // backfill missing threshold keys after upgrades
+  // if i added new threshold types later, fill them in so old configs dont break
   all[guildId].thresholds = { ...DEFAULT_ANTINUKE_THRESHOLDS, ...(all[guildId].thresholds || {}) };
   return { all, cfg: all[guildId] };
 }
@@ -2383,7 +2381,8 @@ function setAntinukeCfg(guildId, mutator) {
   return cfg;
 }
 
-// in memory windowed event tracker: Map<guildId, Map<actorId, Map<action, number[]>>>
+// keeps a list of timestamps in memory so we know how fast someone is doing stuff
+// shape is: guild -> user -> action -> [time, time, time...]
 const _anukeWindow = new Map();
 function _anukePush(guildId, actorId, action, windowMs) {
   if (!_anukeWindow.has(guildId)) _anukeWindow.set(guildId, new Map());
@@ -2401,8 +2400,8 @@ function _anukeReset(guildId, actorId, action) {
   _anukeWindow.get(guildId)?.get(actorId)?.set(action, []);
 }
 
-// pull the most recent audit-log entry of a given type, but only if it happened
-// within the last 10s (otherwise it's stale and unrelated to this event).
+// look at the audit log to figure out who did the thing
+// only counts if it happened in the last 10 seconds, otherwise its probably old and unrelated
 async function _anukeFindActor(guild, auditType) {
   try {
     const logs = await guild.fetchAuditLogs({ type: auditType, limit: 1 });
@@ -2415,8 +2414,8 @@ async function _anukeFindActor(guild, auditType) {
 
 function _anukeBypass(cfg, guild, userId) {
   if (!userId) return true;
-  if (userId === client.user?.id) return true;            // bot itself
-  if (userId === guild.ownerId) return true;              // server owner
+  if (userId === client.user?.id) return true;            // dont punish the bot lol
+  if (userId === guild.ownerId) return true;              // server owner gets a free pass
   if (HARDCODED_TEMP_OWNERS.includes(userId)) return true;
   if (userId === HARDCODED_WL_MANAGER_ID) return true;
   if (cfg.whitelist?.includes(userId)) return true;
@@ -2435,7 +2434,7 @@ async function _anukePunish(guild, member, reason, cfg) {
       if (m) await m.kick(`[antinuke] ${reason}`);
       return 'kicked';
     }
-    // strip: remove every role we can from the user
+    // 'strip' just yanks all their roles away
     const m = await guild.members.fetch(member.id).catch(() => null);
     if (m) {
       const removable = m.roles.cache.filter(r => r.id !== guild.id && r.editable);
@@ -2479,7 +2478,7 @@ async function _anukeHandle(guild, action, auditType) {
   await _anukeAlert(guild, cfg, actor, action, count, outcome);
 }
 
-// AuditLogEvent enum values (avoids importing the enum if it's not in scope)
+// numbers from discord's audit log enum. just hardcoding em so i dont have to import
 const _ANUKE_AL = {
   CHANNEL_DELETE: 12, CHANNEL_CREATE: 10,
   ROLE_DELETE: 32,    ROLE_CREATE: 30,    ROLE_UPDATE: 31,
@@ -2495,8 +2494,7 @@ client.on('guildBanAdd',     ban => _anukeHandle(ban.guild, 'ban',            _A
 client.on('webhookUpdate',   ch  => _anukeHandle(ch.guild,  'webhookCreate',  _ANUKE_AL.WEBHOOK_CREATE));
 client.on('emojiDelete',     e   => _anukeHandle(e.guild,   'emojiDelete',    _ANUKE_AL.EMOJI_DELETE));
 
-// kick detection: guildMemberRemove fires for both leaves AND kicks. confirm
-// via audit log before counting it.
+// when someone leaves we check the audit log to see if they were kicked or just left
 client.on('guildMemberRemove', async member => {
   const { cfg } = getAntinukeCfg(member.guild.id);
   if (!cfg.enabled) return;
@@ -2516,14 +2514,13 @@ client.on('guildMemberRemove', async member => {
   } catch {}
 });
 
-// dangerous role updates: anyone gaining Administrator or "manage guild" via a
-// role grant counts as memberRoleAdmin.
+// if someone just got the Administrator perm, thats sus, count it
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const { cfg } = getAntinukeCfg(newMember.guild.id);
   if (!cfg.enabled) return;
   const oldAdmin = oldMember.permissions?.has?.(PermissionsBitField.Flags.Administrator);
   const newAdmin = newMember.permissions?.has?.(PermissionsBitField.Flags.Administrator);
-  if (oldAdmin || !newAdmin) return; // only fire when admin was JUST granted
+  if (oldAdmin || !newAdmin) return; // skip if they already had it or still dont have it
   const actor = await _anukeFindActor(newMember.guild, _ANUKE_AL.MEMBER_ROLE_UPDATE);
   if (!actor || _anukeBypass(cfg, newMember.guild, actor.id)) return;
   const t = cfg.thresholds.memberRoleAdmin;
@@ -2534,7 +2531,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   await _anukeAlert(newMember.guild, cfg, actor, 'memberRoleAdmin', count, outcome);
 });
 
-// auto-ban added bots unless the bot is whitelisted in antinuke
+// if a new bot joins and its not on the whitelist, ban it
 client.on('guildMemberAdd', async member => {
   const { cfg } = getAntinukeCfg(member.guild.id);
   if (!cfg.enabled) return;
@@ -2543,7 +2540,7 @@ client.on('guildMemberAdd', async member => {
   if (member.user.id === client.user?.id) return;
   const actor = await _anukeFindActor(member.guild, _ANUKE_AL.BOT_ADD);
   if (actor && _anukeBypass(cfg, member.guild, actor.id)) return;
-  // ban the newly added bot AND punish the inviter (if any)
+  // ban the new bot, and also punish whoever invited it if we can find them
   try { await member.guild.bans.create(member.user.id, { reason: '[antinuke] bot add not whitelisted' }); } catch {}
   if (actor) {
     const t = cfg.thresholds.botAdd;
@@ -2558,7 +2555,7 @@ client.on('guildMemberAdd', async member => {
   await _anukeAlert(member.guild, cfg, actor, 'botAdd', 1, `unwhitelisted bot **${member.user.tag}** auto-banned`);
 });
 
-// helper for the .antinuke status command
+// builds the embed for .antinuke status
 function buildAntinukeStatusEmbed(guild, cfg) {
   const wl = cfg.whitelist?.length ? cfg.whitelist.map(id => `<@${id}>`).join(', ') : '_none_';
   const tLines = Object.entries(cfg.thresholds).map(([k, v]) => `\`${k}\` → ${v.count} in ${v.window}ms`);
@@ -2990,6 +2987,25 @@ function buildFakeMessageFromInteraction(interaction) {
     try { return await interaction.followUp(o); } catch { return null; }
   };
 
+  // pull every typed slash option (user/role/channel/attachment) out of the
+  // interaction so the fake message exposes them like a real prefix message
+  // would. this is what makes /restore zip:<file> work — the prefix handler
+  // for .restore reads message.attachments.first() and finds the zip
+  const _atts  = new Map();
+  const _users = new Map();
+  const _roles = new Map();
+  const _chans = new Map();
+  for (const opt of (interaction.options?.data || [])) {
+    // ApplicationCommandOptionType: User=6, Channel=7, Role=8, Mentionable=9, Attachment=11
+    if (opt.type === 11 && opt.attachment) _atts.set(opt.attachment.id, opt.attachment);
+    if (opt.type === 6  && opt.user)       _users.set(opt.user.id, opt.user);
+    if (opt.type === 8  && opt.role)       _roles.set(opt.role.id, opt.role);
+    if (opt.type === 7  && opt.channel)    _chans.set(opt.channel.id, opt.channel);
+  }
+  // stick a .first() helper onto each Map so message.X.first() works (discord.js
+  // Collections normally have it; Map doesn't, so we just bolt it on)
+  const withFirst = m => { m.first = () => m.values().next().value || null; return m; };
+
   return {
     id: interaction.id,
     content,
@@ -3003,15 +3019,15 @@ function buildFakeMessageFromInteraction(interaction) {
     createdTimestamp: interaction.createdTimestamp,
     partial: false,
     mentions: {
-      users: new Map(),
-      members: new Map(),
-      roles: new Map(),
-      channels: new Map(),
+      users:    withFirst(_users),
+      members:  new Map(),
+      roles:    withFirst(_roles),
+      channels: withFirst(_chans),
       everyone: false,
-      first() { return null },
-      has() { return false }
+      first()   { return _users.values().next().value || null },
+      has(id)   { return _users.has(id) || _roles.has(id) || _chans.has(id) }
     },
-    attachments: new Map(),
+    attachments: withFirst(_atts),
     reference: null,
     async reply(opts) { return respond(opts); },
     async fetch() { return this; },
@@ -7411,7 +7427,7 @@ async function dispatchPrefixInner(message) {
     } catch (err) { return message.reply(`something went wrong ${err.message}`); }
   }
 
-  // .antinuke <subcommand> ─ wl managers + temp owners only
+  // .antinuke - only wl managers + temp owners
   if (command === 'antinuke') {
     if (!message.guild) return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('use this in a server')] });
     if (!isWlManager(message.author.id) && !isTempOwner(message.author.id))
@@ -7480,7 +7496,7 @@ async function dispatchPrefixInner(message) {
       return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('thresholds reset to defaults')] });
     }
     if (sub === 'test') {
-      // show what an alert would look like, without actually doing anything
+      // just shows what the alert would look like, doesnt actually do anything
       const fake = baseEmbed().setColor(0xC0392B).setTitle('antinuke triggered (TEST)')
         .addFields(
           { name: 'actor', value: `<@${message.author.id}> \`(${message.author.id})\``, inline: false },
@@ -7502,8 +7518,9 @@ async function dispatchPrefixInner(message) {
     ].join('\n'))] });
   }
 
-  // .backup ─ DM the requester a zip of every JSON state file next to the bot.
-  // wl managers + temp owners only. attaches in-channel only if DMs are closed.
+  // .backup - zips up all the .json files and DMs them to you
+  // only wl managers and temp owners can do this
+  // if your DMs are off it just posts the zip in the channel
   if (command === 'backup') {
     if (!isWlManager(message.author.id) && !isTempOwner(message.author.id))
       return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('only whitelist managers and temp owners can use `.backup`')] });
@@ -7524,7 +7541,7 @@ async function dispatchPrefixInner(message) {
         } catch (e) { skipped.push(`${f} (${e.message})`); }
       }
 
-      // include a small manifest so future-you knows what this backup is
+      // throw in a little info file so later you know where this backup came from
       const meta = {
         createdAt: new Date().toISOString(),
         createdBy: { id: message.author.id, tag: message.author.tag },
@@ -7537,7 +7554,7 @@ async function dispatchPrefixInner(message) {
       entries.push({ name: '_meta.json', data: Buffer.from(JSON.stringify(meta, null, 2), 'utf8') });
 
       const zipBuf = buildZipBuffer(entries);
-      // discord upload cap is 25MB on the default tier. warn early if we're close.
+      // discord wont let you upload more than 25mb so bail early if were close
       if (zipBuf.length > 24 * 1024 * 1024)
         return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription(`backup is too large to upload (${(zipBuf.length / 1024 / 1024).toFixed(2)} MB > 24 MB). consider attaching a Railway volume and downloading the JSON files directly.`)] });
 
@@ -7551,7 +7568,7 @@ async function dispatchPrefixInner(message) {
         skipped.length ? `**skipped:** ${skipped.length} (see _meta.json)` : null,
       ].filter(Boolean).join('\n'));
 
-      // try DM first, fall back to the channel if the user has DMs closed
+      // try to DM it first. if dms are closed just post here
       try {
         const dm = await message.author.createDM();
         await dm.send({ embeds: [summary], files: [attachment] });
@@ -7564,10 +7581,10 @@ async function dispatchPrefixInner(message) {
     }
   }
 
-  // .restore ─ accept an attached backup zip and write the JSON files back.
-  // wl managers + temp owners only. existing files are moved to .bak first so
-  // a bad restore is recoverable. _meta.json inside the zip is read but never
-  // written to disk.
+  // .restore - you attach a backup zip and it puts all the json files back
+  // wl managers and temp owners only
+  // it makes a .bak copy of every file before overwriting so if i mess up its fixable
+  // _meta.json gets read for info but never written to the bot folder
   if (command === 'restore') {
     if (!isWlManager(message.author.id) && !isTempOwner(message.author.id))
       return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('only whitelist managers and temp owners can use `.restore`')] });
@@ -7583,7 +7600,7 @@ async function dispatchPrefixInner(message) {
       const zipBuf = Buffer.from(await res.arrayBuffer());
       const entries = parseZipBuffer(zipBuf);
 
-      // validate the manifest is from .backup before touching anything on disk
+      // peek at the meta file (if there is one) to make sure the zip looks legit
       const metaEntry = entries.find(e => e.name === '_meta.json');
       let meta = null;
       if (metaEntry) {
@@ -7591,21 +7608,20 @@ async function dispatchPrefixInner(message) {
         catch { return message.reply({ embeds: [baseEmbed().setColor(0xC0392B).setDescription('`_meta.json` inside the zip is corrupted — aborting restore')] }); }
       }
 
-      // sanity check: every non-meta entry must be a flat *.json filename
-      // (no subdirs, no path traversal, no other extensions)
+      // double check all the files. they should be plain *.json names with no folders or weird stuff
       const targets = entries.filter(e => e.name !== '_meta.json');
       for (const e of targets) {
         if (!/^[A-Za-z0-9 _.\-]+\.json$/.test(e.name) || e.name.includes('..') || e.name.includes('/') || e.name.includes('\\'))
           return message.reply({ embeds: [baseEmbed().setColor(0xC0392B).setDescription(`refusing to restore — suspicious entry name: \`${e.name}\``)] });
-        // every payload must parse as JSON (so we don't overwrite a good file with garbage)
+        // also make sure each one is valid json so i dont overwrite a real file with junk
         try { JSON.parse(e.data.toString('utf8')); }
         catch { return message.reply({ embeds: [baseEmbed().setColor(0xC0392B).setDescription(`refusing to restore — \`${e.name}\` inside the zip isn't valid JSON`)] }); }
       }
       if (!targets.length)
         return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setDescription('zip contains no .json files to restore')] });
 
-      // do the writes. each existing file gets copied to <name>.bak.<timestamp>
-      // before being overwritten, so a bad restore is recoverable.
+      // ok now actually write the files. before overwriting anything
+      // copy the old one to <name>.bak.<timestamp> as a just-in-case
       const stamp = Date.now();
       const written = [];
       const restoreBackedUp = [];
