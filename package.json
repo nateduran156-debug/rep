@@ -1,15 +1,15 @@
 {
   "name": "discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot with antinuke, raid tools, rollcall, and Roblox group integration",
+  "description": "Discord ticket / verification bot",
   "type": "module",
   "main": "bot.js",
-  "scripts": {
-    "start": "node bot.js",
-    "dev": "node bot.js"
-  },
+  "private": true,
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bot.js"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
