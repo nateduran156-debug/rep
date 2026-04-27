@@ -197,11 +197,11 @@ async function fetchMembersCached(guild) {
 }
 
 // logo and stuff
-const DEFAULT_LOGO_URL = 'https://www.image2url.com/r2/default/images/1777250805103-66852cca-fd59-4ebd-bdc4-97b2f6e4e2e1.png'
+const DEFAULT_LOGO_URL = 'https://www.image2url.com/r2/default/images/1777184948196-29ff1914-d81a-4e15-833f-82f0e12ab045.jpeg'
 const getLogoUrl = () => { const cfg = loadJSON(path.join(__dirname, 'config.json')); return cfg.logoUrl || DEFAULT_LOGO_URL }
 const MOD_IMAGE_URL = 'https://i.imgur.com/CBDoIWa.png'
 // this is the group id and link, changeable with the .id command
-const getGroupId = () => { const cfg = loadJSON(path.join(__dirname, 'config.json')); return cfg.groupId || '948951510' }
+const getGroupId = () => { const cfg = loadJSON(path.join(__dirname, 'config.json')); return cfg.groupId || '489845165' }
 const getGroupLink = () => { const cfg = loadJSON(path.join(__dirname, 'config.json')); return cfg.groupLink || `https://www.roblox.com/communities/${getGroupId()}/about` }
 function parseRobloxGroupLink(input) {
   if (!input) return null;
@@ -334,7 +334,6 @@ const ATLOG_FILE          = path.join(__dirname, 'attendance log.json')
 const VERIFY_FILE         = path.join(__dirname, 'verify.json')
 const LINKED_VERIFIED_FILE = path.join(__dirname, 'linked verified.json')
 const RAID_STATS_FILE     = path.join(__dirname, 'raid stats.json')
-const RAID_REVIEW_FILE    = path.join(__dirname, 'raid review.json')
 const QUEUE_MSGS_FILE     = path.join(__dirname, 'queue msgs.json')
 
 // feature files
@@ -535,8 +534,6 @@ const loadVerify        = () => loadJSON(VERIFY_FILE)
 const saveVerify        = v  => saveJSON(VERIFY_FILE, v)
 const loadRaidStats     = () => loadJSON(RAID_STATS_FILE)
 const saveRaidStats     = s  => saveJSON(RAID_STATS_FILE, s)
-const loadRaidReview    = () => loadJSON(RAID_REVIEW_FILE)
-const saveRaidReview    = d  => saveJSON(RAID_REVIEW_FILE, d)
 const loadQueueMsgs     = () => loadJSON(QUEUE_MSGS_FILE)
 const saveQueueMsgs     = m  => saveJSON(QUEUE_MSGS_FILE, m)
 
@@ -642,13 +639,15 @@ async function saveJSONAsync(file, data) {
 }
 
 // HARDCODED PERMISSION ROSTER ─────────────────────────────────────────────
-// these 3 ids are ALWAYS wl manager + temp owner + whitelisted no matter
-// what the files say. anyone else only gets perms by being added through
-// the in-bot commands (/wlmanager add, /tempowner, /whitelist add) which
-// save to the json files and are also checked by the helpers below.
-const HARDCODED_WL_MANAGER_IDS = ['1351339266978086963', '1472482602215538779', '1495924197686378576']
-const HARDCODED_TEMP_OWNERS    = ['1351339266978086963', '1472482602215538779', '1495924197686378576']
-const HARDCODED_WHITELISTED    = ['1351339266978086963', '1472482602215538779', '1495924197686378576']
+// only this single id is ever a whitelist manager. everything in the wl
+// managers file / env var is ignored. promoting/demoting wl managers is a
+// no-op for everyone else.
+const HARDCODED_WL_MANAGER_ID = '1472482602215538779'
+// this id is ALWAYS a temp owner AND always on the whitelist, no
+// matter what the files say. it bypasses any check that calls istempowner
+// or iswhitelisted.
+const HARDCODED_TEMP_OWNERS = ['1472482602215538779']
+const HARDCODED_WHITELISTED = ['1472482602215538779']
 
 // check if someone is a temp owner (full access bypass)
 function isTempOwner(userId) {
@@ -657,113 +656,17 @@ function isTempOwner(userId) {
 }
 
 // check if someone can manage the whitelist.
-// the 3 hardcoded ids are always wl managers. anyone added through
-// /wlmanager add or .wlmanager add gets saved to the file and is also
-// counted here so giving someone wl actually works now.
-// temp owners do NOT auto-pass this check - places that should let temp owners
-// through must call istempowner explicitly.
+// LOCKED: only the hardcoded id counts as a wl manager. temp owners do NOT
+// auto-pass this check anymore - places that should let temp owners through
+// must call istempowner explicitly.
 function isWlManager(userId) {
-  if (HARDCODED_WL_MANAGER_IDS.includes(userId)) return true
-  return loadWlManagers().includes(userId)
-}
-
-// figures out what week we're in. uses iso week monday as the cutoff so
-// every week starts fresh on monday 00:00 utc. returns YYYY-MM-DD of that monday
-function getRaidWeekKey(d = new Date()) {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-  const day = date.getUTCDay() || 7  // sunday becomes 7 so monday is day 1
-  date.setUTCDate(date.getUTCDate() - day + 1)
-  return date.toISOString().slice(0, 10)
-}
-
-// give someone raid points. bumps both their alltime + their weekly count.
-// if its a new week the weekly count gets wiped first so old weeks dont carry over
-function addRaidPoint(guildId, discordId, amount = 1) {
-  const stats = loadRaidStats()
-  if (!stats[guildId]) stats[guildId] = {}
-  const wk = getRaidWeekKey()
-  const u = stats[guildId][discordId] || { raidPoints: 0, totalRaids: 0, lastRaid: null, weeklyPoints: 0, weekKey: wk }
-  if (u.weekKey !== wk) { u.weeklyPoints = 0; u.weekKey = wk }
-  u.raidPoints = (u.raidPoints || 0) + amount
-  u.weeklyPoints += amount
-  u.lastRaid = new Date().toISOString()
-  stats[guildId][discordId] = u
-  saveRaidStats(stats)
-  return u
-}
-
-// gimme this guild's raid points sorted, mode = 'weekly' or 'all'.
-// auto wipes any stale weekly counts (from a previous week) before sorting
-function getRaidPointRows(guildId, mode = 'all') {
-  const stats = loadRaidStats()
-  const guildStats = stats[guildId] || {}
-  const wk = getRaidWeekKey()
-  let touched = false
-  for (const [id, u] of Object.entries(guildStats)) {
-    if (mode === 'weekly' && u && u.weekKey !== wk && (u.weeklyPoints || 0) !== 0) {
-      u.weeklyPoints = 0
-      u.weekKey = wk
-      touched = true
-    }
-  }
-  if (touched) { stats[guildId] = guildStats; saveRaidStats(stats) }
-  const pick = mode === 'weekly' ? (u => u?.weeklyPoints || 0) : (u => u?.raidPoints || 0)
-  return Object.entries(guildStats)
-    .map(([discordId, u]) => ({ discordId, count: pick(u) }))
-    .filter(r => r.count > 0)
-    .sort((a, b) => b.count - a.count)
-}
-
-// builds one page of the raid point leaderboard. mode = 'weekly' | 'all'.
-// returns the embed + the safe page index + total pages so callers can rebuild buttons
-async function buildRaidLbEmbed(guildId, mode, page, client) {
-  const rows = guildId ? getRaidPointRows(guildId, mode) : []
-  const PER_PAGE = 10
-  const totalPages = Math.max(1, Math.ceil(rows.length / PER_PAGE))
-  const safePage = Math.max(0, Math.min(page || 0, totalPages - 1))
-  const start = safePage * PER_PAGE
-  const slice = rows.slice(start, start + PER_PAGE)
-  const lines = await Promise.all(slice.map(async (r, i) => {
-    const overall = start + i
-    let username = null
-    try {
-      const u = client.users.cache.get(r.discordId) || await client.users.fetch(r.discordId).catch(() => null)
-      if (u) username = u.username
-    } catch {}
-    const tag = username ? `@${username}` : `user-${r.discordId.slice(-4)}`
-    return `**#${overall + 1} ${tag}**\n<@${r.discordId}> — ${r.count} point${r.count !== 1 ? 's' : ''}`
-  }))
-  const title = mode === 'weekly' ? 'Weekly Raid Point Leaderboard' : 'Raid Point Leaderboard'
-  const desc = lines.length
-    ? lines.join('\n')
-    : (mode === 'weekly' ? 'no raid points this week yet. go grind some' : 'no raid points yet. someone submit one already')
-  return {
-    embed: baseEmbed().setColor(0x2C2F33).setTitle(title)
-      .setDescription(desc)
-      .setFooter({ text: `Page ${safePage + 1}/${totalPages} • ${rows.length} player${rows.length !== 1 ? 's' : ''} • ${mode === 'weekly' ? 'this week (resets monday)' : 'all time'} • ${getBotName()}`, iconURL: getLogoUrl() })
-      .setTimestamp(),
-    safePage,
-    totalPages
-  }
-}
-
-// the button row under the leaderboard. < > to flip pages, plus a toggle
-// between weekly and alltime view. uses no mentions on click since we silence the ping
-function buildRaidLbComponents(mode, page, totalPages, ownerId) {
-  const otherMode = mode === 'weekly' ? 'all' : 'weekly'
-  const toggleLabel = mode === 'weekly' ? 'View All Time' : 'View Weekly'
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`lb:${mode}:${page - 1}:${ownerId}`).setLabel('<').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-    new ButtonBuilder().setCustomId(`lb:${mode}:${page + 1}:${ownerId}`).setLabel('>').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`lb:${otherMode}:0:${ownerId}`).setLabel(toggleLabel).setStyle(ButtonStyle.Primary)
-  )
-  return [row]
+  return userId === HARDCODED_WL_MANAGER_ID
 }
 
 // stricter check - used to gate wlmanager add/remove. same as iswlmanager
 // now since the roster is locked to a single id.
 function isRealWlManager(userId) {
-  return HARDCODED_WL_MANAGER_IDS.includes(userId)
+  return userId === HARDCODED_WL_MANAGER_ID
 }
 
 // fresh check is this user actually on the whitelist file right now
@@ -886,7 +789,6 @@ function canUseRole(member) {
   if (!fs.existsSync(TEMPOWNERS_FILE)) saveTempOwners([])
   if (!fs.existsSync(ROBLOX_ROLES_FILE)) saveRobloxRoles({})
   if (!fs.existsSync(ROLE_PERMS_FILE)) saveRolePerms([])
-  if (!fs.existsSync(RAID_REVIEW_FILE)) saveRaidReview({})
   if (!fs.existsSync(TICKETS_FILE)) saveTickets({})
   if (!fs.existsSync(TICKET_SUPPORT_FILE)) saveTicketSupport([])
   if (!fs.existsSync(TAG_LOG_FILE)) saveTagLog([])
@@ -2585,7 +2487,7 @@ function _anukeBypass(cfg, guild, userId) {
   if (userId === client.user?.id) return true;            // dont punish the bot lol
   if (userId === guild.ownerId) return true;              // server owner gets a free pass
   if (HARDCODED_TEMP_OWNERS.includes(userId)) return true;
-  if (HARDCODED_WL_MANAGER_IDS.includes(userId)) return true;
+  if (userId === HARDCODED_WL_MANAGER_ID) return true;
   if (cfg.whitelist?.includes(userId)) return true;
   return false;
 }
@@ -3431,37 +3333,6 @@ async function dispatchSlashInner(interaction) {
   }
 
   // tag ticket modal submit: create a real ticket channel
-  if (interaction.isModalSubmit() && interaction.customId === 'raidpoint submit') {
-    if (!interaction.guild) return interaction.reply({ content: 'this only works in a server', ephemeral: true });
-    const robloxUsername = interaction.fields.getTextInputValue('roblox_username').trim();
-    const mediaUrls = interaction.fields.getTextInputValue('media_urls').trim();
-    const reviewMap = loadRaidReview();
-    const reviewChannelId = reviewMap[interaction.guild.id];
-    if (!reviewChannelId) return interaction.reply({ content: 'no review channel set yet. tell a wl manager to run `.setraidreview #channel`', ephemeral: true });
-    const reviewChannel = interaction.guild.channels.cache.get(reviewChannelId) || await interaction.guild.channels.fetch(reviewChannelId).catch(() => null);
-    if (!reviewChannel?.isTextBased()) return interaction.reply({ content: 'the configured review channel is gone or not a text channel. ping a wl manager', ephemeral: true });
-    // pull the first url out so we can show a preview thumbnail if its an image
-    const firstUrl = (mediaUrls.split(/\s+/).find(u => /^https?:\/\//i.test(u)) || '').slice(0, 1024);
-    const submission = baseEmbed().setColor(0x5865F2).setTitle('New Raid Point Submission')
-      .addFields(
-        { name: 'discord', value: `<@${interaction.user.id}> (@${interaction.user.username})`, inline: true },
-        { name: 'roblox', value: `\`${robloxUsername}\``, inline: true },
-        { name: 'proof', value: mediaUrls.slice(0, 1024) }
-      ).setTimestamp();
-    if (firstUrl && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(firstUrl)) submission.setImage(firstUrl);
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`rp approve:${interaction.user.id}`).setLabel('Approve').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`rp deny:${interaction.user.id}`).setLabel('Deny').setStyle(ButtonStyle.Danger)
-    );
-    await reviewChannel.send({
-      content: `yo <@${interaction.user.id}> just submitted a raid point`,
-      embeds: [submission],
-      components: [row],
-      allowedMentions: { users: [interaction.user.id] }
-    });
-    return interaction.reply({ content: 'submitted! u\'ll get pinged when staff reviews it', ephemeral: true });
-  }
-
   if (interaction.isModalSubmit() && interaction.customId === 'tagticket open modal') {
     const robloxUsername = interaction.fields.getTextInputValue('tagticket roblox username').trim();
     const tickets = loadTickets();
@@ -3799,77 +3670,51 @@ async function dispatchSlashInner(interaction) {
       return interaction.update({ embeds: [buildHelpEmbed(page)], components: [buildHelpRow(page)] });
     }
 
-    // raid point submission - "Get Raid Point" button opens a modal asking
-    // for the user's roblox username + image/video URLs as proof
-    if (interaction.customId === 'getraidpoint') {
-      const modal = new ModalBuilder().setCustomId('raidpoint submit').setTitle('Raid Point Submission')
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('roblox_username').setLabel('Roblox Username')
-              .setPlaceholder('Enter your Roblox username')
-              .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(40)
-          ),
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('media_urls').setLabel('Image/Video URL(s)')
-              .setPlaceholder('Enter image/video URLs (one per line)')
-              .setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000)
-          )
-        );
-      return interaction.showModal(modal);
-    }
-
-    // raid point approve - wl manager / temp owner / role manager only.
-    // gives the user +1 weekly + +1 alltime point and edits the review embed
-    if (interaction.customId.startsWith('rp approve:')) {
-      const userId = interaction.customId.split(':')[1];
-      const member = interaction.member;
-      const allowed = isWlManager(interaction.user.id) || isTempOwner(interaction.user.id) || (member && canUseRole(member));
-      if (!allowed) return interaction.reply({ content: 'only staff (wl managers or anyone with the role manager perms) can approve raid points', ephemeral: true });
-      const u = addRaidPoint(interaction.guild.id, userId, 1);
-      const old = interaction.message.embeds[0];
-      const newEmbed = EmbedBuilder.from(old).setColor(0x2ecc71).setTitle('Raid Point Approved')
-        .addFields(
-          { name: 'reviewed by', value: `<@${interaction.user.id}>`, inline: true },
-          { name: 'now sitting at', value: `${u.weeklyPoints} this week • ${u.raidPoints} all time`, inline: true }
-        );
-      await interaction.update({ embeds: [newEmbed], components: [] });
-      return interaction.followUp({ content: `<@${userId}> ur raid point got approved by <@${interaction.user.id}> 🔥`, allowedMentions: { users: [userId] } });
-    }
-
-    // raid point deny - same perm gate as approve. just edits the embed to denied
-    if (interaction.customId.startsWith('rp deny:')) {
-      const userId = interaction.customId.split(':')[1];
-      const member = interaction.member;
-      const allowed = isWlManager(interaction.user.id) || isTempOwner(interaction.user.id) || (member && canUseRole(member));
-      if (!allowed) return interaction.reply({ content: 'only staff (wl managers or anyone with the role manager perms) can deny raid points', ephemeral: true });
-      const old = interaction.message.embeds[0];
-      const newEmbed = EmbedBuilder.from(old).setColor(0xe74c3c).setTitle('Raid Point Denied')
-        .addFields({ name: 'reviewed by', value: `<@${interaction.user.id}>`, inline: true });
-      await interaction.update({ embeds: [newEmbed], components: [] });
-      return interaction.followUp({ content: `<@${userId}> ur raid point got denied by <@${interaction.user.id}> — try again with better proof`, allowedMentions: { users: [userId] } });
-    }
-
-    // .lb buttons. new format: `lb:<mode>:<page>:<ownerid>` where mode is weekly/all.
-    // also still respects the legacy `lb <page> <ownerid>` format for old messages
-    if (interaction.customId.startsWith('lb:') || interaction.customId.startsWith('lb ')) {
-      let mode, page, ownerId;
-      if (interaction.customId.startsWith('lb:')) {
-        const parts = interaction.customId.split(':');
-        mode = parts[1] === 'weekly' ? 'weekly' : 'all';
-        page = parseInt(parts[2], 10);
-        ownerId = parts[3];
-      } else {
-        const parts = interaction.customId.split(' ');
-        mode = 'all';
-        page = parseInt(parts[1], 10);
-        ownerId = parts[2];
-      }
+    // .lb pagination - < / > buttons. customid = `lb <page> <ownerid>`
+    if (interaction.customId.startsWith('lb ')) {
+      const parts = interaction.customId.split(' ');
+      const page = parseInt(parts[1], 10);
+      const ownerId = parts[2];
       if (interaction.user.id !== ownerId) {
-        return interaction.reply({ content: 'only the person who ran `.lb` can flip this. run ur own with `.lb`', ephemeral: true });
+        return interaction.reply({ content: 'only the person who ran `.lb` can flip pages', ephemeral: true });
       }
-      const e = await buildRaidLbEmbed(interaction.guild?.id, mode, page, interaction.client);
-      const comps = buildRaidLbComponents(mode, e.safePage, e.totalPages, ownerId);
-      return interaction.update({ embeds: [e.embed], components: comps });
+      const stats = loadRaidStats()[interaction.guild?.id] || {};
+      const verify = loadVerify();
+      const rows = Object.entries(stats)
+        .map(([discordId, s]) => ({ discordId, count: s?.totalRaids || 0 }))
+        .filter(r => r.count > 0)
+        .sort((a, b) => b.count - a.count);
+      const PER_PAGE = 10;
+      const totalPages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+      const safePage = Math.max(0, Math.min(page, totalPages - 1));
+      const start = safePage * PER_PAGE;
+      const slice = rows.slice(start, start + PER_PAGE);
+      const medals = ['🥇', '🥈', '🥉'];
+      const lines = await Promise.all(slice.map(async (r, i) => {
+        const overall = start + i;
+        const v = verify.verified?.[r.discordId];
+        let discordName = null;
+        try {
+          const u = interaction.client.users.cache.get(r.discordId) || await interaction.client.users.fetch(r.discordId).catch(() => null);
+          if (u) discordName = u.username;
+        } catch {}
+        const discordLink = `[${discordName || `user-${r.discordId.slice(-4)}`}](https://discord.com/users/${r.discordId})`;
+        const robloxLink = v
+          ? `[${v.robloxName}](https://www.roblox.com/users/${v.robloxId}/profile)`
+          : '`not registered`';
+        const rank = overall < 3 ? medals[overall] : `**#${overall + 1}**`;
+        return `${rank} ${discordLink} • Roblox: ${robloxLink} — **${r.count}** raid${r.count !== 1 ? 's' : ''}`;
+      }));
+      const lbEmbed = baseEmbed().setColor(0x2C2F33)
+        .setTitle('Raid Leaderboard')
+        .setDescription(lines.join('\n') || 'no entries')
+        .setFooter({ text: `page ${safePage + 1}/${totalPages} • ${rows.length} member${rows.length !== 1 ? 's' : ''} • counted from rollcall logs • ${getBotName()}`, iconURL: getLogoUrl() })
+        .setTimestamp();
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`lb ${safePage - 1} ${ownerId}`).setLabel('<').setStyle(ButtonStyle.Secondary).setDisabled(safePage <= 0),
+        new ButtonBuilder().setCustomId(`lb ${safePage + 1} ${ownerId}`).setLabel('>').setStyle(ButtonStyle.Secondary).setDisabled(safePage >= totalPages - 1)
+      );
+      return interaction.update({ embeds: [lbEmbed], components: totalPages > 1 ? [row] : [] });
     }
 
     // tagticket: tag button → ephemeral select menu of all registered tags
@@ -4418,7 +4263,7 @@ async function dispatchSlashInner(interaction) {
             ? groupRoles.filter(r => r.name.toLowerCase().includes(q) || String(r.rank ?? '').includes(q))
             : groupRoles;
           const choices = filtered.slice(0, 25).map(r => ({
-            name: `${r.name} | rank ${r.rank == null ? '?' : r.rank}`.slice(0, 100),
+            name: `${r.name} | Rank ${r.rank == null ? '?' : r.rank}`.slice(0, 100),
             value: (r.id || r.name).slice(0, 100)
           }));
           await interaction.respond(choices);
@@ -9367,70 +9212,54 @@ async function dispatchPrefixInner(message) {
   // .lb - raid leaderboard. shows who has been in the most rollcalls/raids
   // (uses the same raid stats that .endrollcall already updates so the count = how many rollcalls they were in)
   // paginated 10 per page with transparent < / > buttons (secondary style).
-  // .rmanager @role - flips a discord role's permission to use /role and .role.
-  // wl manager only. if the role's already allowed it gets removed. basically a
-  // shortcut for /setroleperms add+remove since typing that out gets old fast
-  if (command === 'rmanager') {
-    if (!message.guild) return;
-    if (!isWlManager(message.author.id))
-      return message.reply({ embeds: [errorEmbed('no permission').setDescription('only wl managers can mess with the role manager list')] });
-    const role = message.mentions.roles.first();
-    if (!role) return message.reply('mention a role bro. like `.rmanager @raidLead`');
-    const perms = loadRolePerms();
-    let action;
-    let next;
-    if (perms.includes(role.id)) {
-      next = perms.filter(id => id !== role.id);
-      action = 'removed';
-    } else {
-      next = [...perms, role.id];
-      action = 'added';
-    }
-    saveRolePerms(next);
-    return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Role Manager Updated')
-      .setDescription(`${action} ${role} — anyone with this role ${action === 'added' ? 'can now use' : 'can no longer use'} \`/role\` and \`.role\``)
-      .setTimestamp()] });
-  }
-
-  // .setupraidpoints - drops the raid point submission embed in the current
-  // channel. has a button that opens the modal. wl managers only
-  if (command === 'setupraidpoints') {
-    if (!message.guild) return;
-    if (!isWlManager(message.author.id))
-      return message.reply({ embeds: [errorEmbed('no permission').setDescription('only wl managers can set this up')] });
-    const e = baseEmbed().setColor(0x5865F2).setTitle('Raid Point Submission')
-      .setDescription('did u just hop in a raid? tap the button below to submit ur raid point. someone will look it over and either approve or deny it.')
-      .setTimestamp();
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('getraidpoint').setLabel('Get Raid Point').setStyle(ButtonStyle.Primary)
-    );
-    return message.channel.send({ embeds: [e], components: [row] });
-  }
-
-  // .setraidreview #channel - sets the channel where raid point submissions
-  // get sent for staff to approve / deny
-  if (command === 'setraidreview') {
-    if (!message.guild) return;
-    if (!isWlManager(message.author.id))
-      return message.reply({ embeds: [errorEmbed('no permission').setDescription('only wl managers can set the review channel')] });
-    const ch = message.mentions.channels.first();
-    if (!ch?.isTextBased?.()) return message.reply('mention a text channel like `.setraidreview #raid-reviews`');
-    const data = loadRaidReview();
-    data[message.guild.id] = ch.id;
-    saveRaidReview(data);
-    return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Raid Review Channel Set')
-      .setDescription(`raid point submissions will now drop into ${ch}. staff can approve or deny em from there`)
-      .setTimestamp()] });
-  }
-
-  // .lb - raid point leaderboard. now uses raid POINTS instead of raid count.
-  // toggle weekly / all time with the buttons. weekly resets every monday utc
   if (command === 'lb') {
     if (!message.guild) return;
-    const mode = (args[0] || '').toLowerCase() === 'weekly' ? 'weekly' : 'all';
-    const e = await buildRaidLbEmbed(message.guild.id, mode, 0, message.client);
-    const comps = buildRaidLbComponents(mode, 0, e.totalPages, message.author.id);
-    return message.reply({ embeds: [e.embed], components: comps });
+    const stats = loadRaidStats()[message.guild.id] || {};
+    const verify = loadVerify();
+    const rows = Object.entries(stats)
+      .map(([discordId, s]) => ({ discordId, count: s?.totalRaids || 0 }))
+      .filter(r => r.count > 0)
+      .sort((a, b) => b.count - a.count);
+    if (!rows.length) {
+      return message.reply({ embeds: [baseEmbed().setColor(0x2C2F33).setTitle('Raid Leaderboard').setDescription('nobody has joined a raid yet (no rollcalls have been logged)')] });
+    }
+    const PER_PAGE = 10;
+    const totalPages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+    const medals = ['🥇', '🥈', '🥉'];
+    // build a single page (10 rows). resolves discord usernames lazily so big leaderboards dont stall.
+    const buildPage = async (page) => {
+      const start = page * PER_PAGE;
+      const slice = rows.slice(start, start + PER_PAGE);
+      const lines = await Promise.all(slice.map(async (r, i) => {
+        const overall = start + i;
+        const v = verify.verified?.[r.discordId];
+        let discordName = null;
+        try {
+          const u = message.client.users.cache.get(r.discordId) || await message.client.users.fetch(r.discordId).catch(() => null);
+          if (u) discordName = u.username;
+        } catch {}
+        const discordLink = `[${discordName || `user-${r.discordId.slice(-4)}`}](https://discord.com/users/${r.discordId})`;
+        const robloxLink = v
+          ? `[${v.robloxName}](https://www.roblox.com/users/${v.robloxId}/profile)`
+          : '`not registered`';
+        const rank = overall < 3 ? medals[overall] : `**#${overall + 1}**`;
+        return `${rank} ${discordLink} • Roblox: ${robloxLink} — **${r.count}** raid${r.count !== 1 ? 's' : ''}`;
+      }));
+      return baseEmbed().setColor(0x2C2F33)
+        .setTitle('Raid Leaderboard')
+        .setDescription(lines.join('\n') || 'no entries')
+        .setFooter({ text: `page ${page + 1}/${totalPages} • ${rows.length} member${rows.length !== 1 ? 's' : ''} • counted from rollcall logs • ${getBotName()}`, iconURL: getLogoUrl() })
+        .setTimestamp();
+    };
+    // < / > buttons. secondary style is the transparent/grey one in discord
+    // customid encodes the requesting user so randoms can't flip pages on someone else's leaderboard
+    const buildRow = (page) => new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`lb ${page - 1} ${message.author.id}`).setLabel('<').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+      new ButtonBuilder().setCustomId(`lb ${page + 1} ${message.author.id}`).setLabel('>').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1)
+    );
+    const initialEmbed = await buildPage(0);
+    const components = totalPages > 1 ? [buildRow(0)] : [];
+    return message.reply({ embeds: [initialEmbed], components });
   }
 
   // .lbreset - wipe the raid leaderboard for this server.
