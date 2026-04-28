@@ -3789,8 +3789,212 @@ async function dispatchSlashInner(interaction) {
       await ch.send({ embeds: [errorEmbed('group check failed').setDescription(`couldn't load groups ${e.message}`)] });
     }
 
-    sendBotLog(guild, baseEmbed().setColor(0x2C2F33).setTitle('ticket opened').setDescription(`${interaction.user.tag} opened ${ch} (roblox: \`${robloxUsername}\`)`));
+    sendBotLog(guild, `ticket opened: ${interaction.user.tag} opened ${ch} (roblox: \`${robloxUsername}\`)`);
     return interaction.editReply(`your ticket: ${ch}`);
+  }
+
+  // modal: tag ticket — looks up the user in the roblox group then opens
+  // a "tag-request-NNNN" channel with a rank select dropdown for staff
+  if (interaction.isModalSubmit() && interaction.customId === 'ticket tag modal') {
+    const guild = interaction.guild;
+    if (!guild) return interaction.reply({ content: 'server only', ephemeral: true });
+    const robloxUsername = interaction.fields.getTextInputValue('ticket roblox username').trim();
+    const tickets = loadTickets();
+    const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === 'tag');
+    if (existing) return interaction.reply({ content: `you already have an open tag request: <#${existing[0]}>`, ephemeral: true });
+    await interaction.deferReply({ ephemeral: true });
+
+    const groupId = process.env.ROBLOX_GROUP_ID || getGroupId();
+
+    // 1. roblox user lookup
+    let userBasic;
+    try {
+      const lookup = await (await fetch('https://users.roblox.com/v1/usernames/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernames: [robloxUsername], excludeBannedUsers: false }),
+      })).json();
+      userBasic = lookup.data?.[0];
+    } catch (err) {
+      return interaction.editReply({ content: `couldn't reach roblox: ${err.message}` });
+    }
+    if (!userBasic) return interaction.editReply({ content: `no roblox user named **${robloxUsername}** found` });
+
+    // 2. current group membership / rank + 3. group's rank ladder (parallel)
+    let memberData, rolesData, avatarData;
+    try {
+      [memberData, rolesData, avatarData] = await Promise.all([
+        (await fetch(`https://groups.roblox.com/v1/users/${userBasic.id}/groups/roles`)).json(),
+        (await fetch(`https://groups.roblox.com/v1/groups/${groupId}/roles`)).json(),
+        (await fetch(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${userBasic.id}&size=420x420&format=Png&isCircular=false`)).json(),
+      ]);
+    } catch (err) {
+      return interaction.editReply({ content: `couldn't fetch roblox group info: ${err.message}` });
+    }
+    const currentMembership = memberData.data?.find(g => String(g.group.id) === String(groupId));
+    if (!currentMembership) {
+      return interaction.editReply({
+        content: `**${userBasic.name}** isn't in the group yet — ask them to join first, then re-open the ticket`,
+      });
+    }
+    const currentRank = currentMembership.role; // { id, name, rank }
+    // skip Guest (rank 0); keep ranks ordered by rank number
+    const allRanks = (rolesData.roles || []).filter(r => r.rank > 0).sort((a, b) => a.rank - b.rank);
+    if (!allRanks.length) {
+      return interaction.editReply({ content: `couldn't load ranks for group ${groupId}` });
+    }
+    const avatarUrl = avatarData.data?.[0]?.imageUrl || null;
+
+    // 4. build channel — tag-request-NNNN with a zero-padded counter
+    const cfg = loadConfig();
+    cfg.tagRequestCounter = (cfg.tagRequestCounter || 0) + 1;
+    saveConfig(cfg);
+    const ticketNumber = String(cfg.tagRequestCounter).padStart(4, '0');
+
+    const support = loadTicketSupport();
+    const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
+    if (!me || !me.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+      return interaction.editReply({ content: 'i need the **Manage Channels** permission to create tickets' });
+    }
+    const overwrites = buildTicketOverwrites(guild, interaction.user.id);
+    let parentId = interaction.channel.parentId || undefined;
+    if (parentId) {
+      const parent = guild.channels.cache.get(parentId);
+      if (!parent || !parent.permissionsFor(me)?.has(PermissionsBitField.Flags.ManageChannels)) parentId = undefined;
+    }
+
+    let ch;
+    try {
+      ch = await guild.channels.create({
+        name: `tag-request-${ticketNumber}`,
+        type: ChannelType.GuildText,
+        parent: parentId,
+        permissionOverwrites: overwrites,
+        reason: `tag request ${ticketNumber} opened by ${interaction.user.tag}`,
+      });
+    } catch (err) {
+      console.error('tag ticket create failed:', err);
+      const reason = err?.rawError?.message || err?.message || 'unknown error';
+      return interaction.editReply({ content: `could not create ticket channel: ${reason}` });
+    }
+
+    tickets[ch.id] = {
+      userId: interaction.user.id,
+      openedAt: Date.now(),
+      robloxUsername: userBasic.name,
+      robloxUserId: userBasic.id,
+      currentRankId: currentRank.id,
+      currentRankName: currentRank.name,
+      ticketNumber,
+      kind: 'tag',
+    };
+    saveTickets(tickets);
+
+    // 5. embed + rank select dropdown — matches the screenshot
+    const requestEmbed = baseEmbed()
+      .setColor(0x4A0E0E)
+      .setTitle(`Tag Request — #${ticketNumber}`)
+      .setDescription(
+        `${userBasic.displayName || userBasic.name} (@${userBasic.name})\n` +
+        `${userBasic.id} · ${currentRank.name}`
+      );
+    if (avatarUrl) requestEmbed.setThumbnail(avatarUrl);
+
+    // discord select menus cap at 25 options — drop the lowest ranks if over
+    const rankOptions = allRanks.slice(0, 25).map(r => ({
+      label: r.name.slice(0, 100),
+      value: String(r.id),
+      description: `Rank ${r.rank}`.slice(0, 100),
+      default: r.id === currentRank.id,
+    }));
+
+    // store the roblox username + group id in the customId so the handler
+    // doesn't have to re-load anything to do its job
+    const rankMenu = new StringSelectMenuBuilder()
+      .setCustomId(`tag rank select|${userBasic.id}|${groupId}`)
+      .setPlaceholder(currentRank.name)
+      .addOptions(rankOptions);
+
+    const supportPing = support.length ? support.map(id => `<@&${id}>`).join(' ') : '';
+    await ch.send({
+      content: `${interaction.user} ${supportPing}`.trim(),
+      embeds: [requestEmbed],
+      components: [new ActionRowBuilder().addComponents(rankMenu)],
+      allowedMentions: { users: [interaction.user.id], roles: support },
+    });
+
+    sendBotLog(guild, `tag request #${ticketNumber} opened: ${interaction.user.tag} → \`${userBasic.name}\` (${userBasic.id}) in ${ch}`);
+    return interaction.editReply(`your tag request: ${ch}`);
+  }
+
+  // tag rank select — staff picks a new rank from the dropdown.
+  // customId format: "tag rank select|<robloxUserId>|<groupId>"
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('tag rank select|')) {
+    const [, robloxUserIdStr, groupIdStr] = interaction.customId.split('|');
+    const newRoleId = interaction.values[0];
+    const guild = interaction.guild;
+    if (!guild) return interaction.reply({ content: 'server only', ephemeral: true });
+
+    // permission check — wl managers OR ticket support roles only
+    const support = loadTicketSupport();
+    const allowed = isWlManager(interaction.user.id)
+      || interaction.member.roles.cache.some(r => support.includes(r.id));
+    if (!allowed) return interaction.reply({ content: 'only ticket support / wl managers can pick a rank', ephemeral: true });
+
+    await interaction.deferReply();
+    const tickets = loadTickets();
+    const ticket = tickets[interaction.channel.id];
+    if (!ticket || ticket.kind !== 'tag') {
+      return interaction.editReply({ content: 'this channel is not a tag request' });
+    }
+
+    try {
+      // call the existing helper — it does the csrf dance + PATCH for us
+      await rankRobloxUser(ticket.robloxUsername, newRoleId);
+    } catch (err) {
+      console.error('rank update failed:', err);
+      return interaction.editReply({ content: `failed to set rank: ${err.message}` });
+    }
+
+    // figure out the new rank name so we can show it nicely
+    let newRankName = `role ${newRoleId}`;
+    try {
+      const rolesData = await (await fetch(`https://groups.roblox.com/v1/groups/${groupIdStr}/roles`)).json();
+      const match = (rolesData.roles || []).find(r => String(r.id) === String(newRoleId));
+      if (match) newRankName = match.name;
+    } catch {}
+
+    // update the saved ticket so we remember the latest rank
+    ticket.currentRankId = Number(newRoleId);
+    ticket.currentRankName = newRankName;
+    saveTickets(tickets);
+
+    // edit the original message: refresh the embed line + mark the new option default
+    try {
+      const msg = interaction.message;
+      const oldEmbed = msg.embeds[0];
+      if (oldEmbed) {
+        const refreshed = EmbedBuilder.from(oldEmbed).setDescription(
+          (oldEmbed.description || '').replace(/·.*$/m, `· ${newRankName}`)
+        );
+        const refreshedMenu = StringSelectMenuBuilder.from(msg.components[0].components[0])
+          .setPlaceholder(newRankName)
+          .setOptions(
+            msg.components[0].components[0].options.map(o => ({
+              label: o.label, value: o.value, description: o.description,
+              default: o.value === newRoleId,
+            }))
+          );
+        await msg.edit({
+          embeds: [refreshed],
+          components: [new ActionRowBuilder().addComponents(refreshedMenu)],
+        });
+      }
+    } catch (err) {
+      console.error('failed to refresh tag request message:', err.message);
+    }
+
+    sendBotLog(guild, `tag request #${ticket.ticketNumber}: ${interaction.user.tag} ranked \`${ticket.robloxUsername}\` → **${newRankName}**`);
+    return interaction.editReply({ content: `set **${ticket.robloxUsername}** to **${newRankName}**` });
   }
 
   if (interaction.isModalSubmit() && interaction.customId === 'raidpoint submit') {
@@ -3907,7 +4111,7 @@ async function dispatchSlashInner(interaction) {
       if (kind === 'verification') {
         const tickets = loadTickets();
         const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && (t.kind === "ticket" || !t.kind));
-        if (existing) return interaction.reply({ embeds: [errorEmbed('ticket already open').setDescription(`you already have an open ticket: <#${existing[0]}> `)], ephemeral: true });
+        if (existing) return interaction.reply({ content: `you already have an open ticket: <#${existing[0]}>`, ephemeral: true });
         const modal = new ModalBuilder().setCustomId('ticket open modal').setTitle('Open a Ticket')
           .addComponents(new ActionRowBuilder().addComponents(
             new TextInputBuilder()
@@ -3916,6 +4120,24 @@ async function dispatchSlashInner(interaction) {
               .setPlaceholder('Enter your Roblox username...')
               .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20)
           ));
+        return interaction.showModal(modal);
+      }
+      if (kind === 'tag') {
+        const tickets = loadTickets();
+        const existing = findOpenTicket(tickets, interaction.guild, t => t.userId === interaction.user.id && t.kind === 'tag');
+        if (existing) return interaction.reply({ content: `you already have an open tag request: <#${existing[0]}>`, ephemeral: true });
+        // tag ticket modal — only asks for the user's roblox username,
+        // staff pick the actual rank from the rank-select dropdown inside the channel
+        const modal = new ModalBuilder().setCustomId('ticket tag modal').setTitle('Request a Tag')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('ticket roblox username')
+                .setLabel('Roblox Username')
+                .setPlaceholder('Enter your Roblox username...')
+                .setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20)
+            ),
+          );
         return interaction.showModal(modal);
       }
       return interaction.reply({ content: 'unknown choice', ephemeral: true });
