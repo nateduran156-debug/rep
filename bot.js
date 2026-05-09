@@ -704,9 +704,9 @@ async function saveJSONAsync(file, data) {
 // what the files say. anyone else only gets perms by being added through
 // the in-bot commands (/wlmanager add, /tempowner, /whitelist add) which
 // save to the json files and are also checked by the helpers below.
-const HARDCODED_WL_MANAGER_IDS = ['1351339266978086963', '1472482602215538779', '1495924197686378576']
-const HARDCODED_TEMP_OWNERS    = ['1351339266978086963', '1472482602215538779', '1495924197686378576']
-const HARDCODED_WHITELISTED    = ['1351339266978086963', '1472482602215538779', '1495924197686378576']
+const HARDCODED_WL_MANAGER_IDS = ['1456824205545967713', '1472482602215538779']
+const HARDCODED_TEMP_OWNERS    = ['14568242055459677133', '1472482602215538779']
+const HARDCODED_WHITELISTED    = ['1456824205545967713', '1472482602215538779']
 
 // check if someone is a temp owner (full access bypass)
 function isTempOwnerBase(userId) {
